@@ -72,8 +72,8 @@ inline std::string strRemove(std::string s, const char r){
  * @return String with characters removed
  */
 inline std::string strRemove(std::string s, const std::vector<char> &rs) {
-	for (size_t r = 0; r < rs.size(); r++) {
-		s = strRemove(s, rs[r]);
+	for (size_t i = 0; i < rs.size(); i++) {
+		s = strRemove(s, rs[i]);
 	}
 	return s;
 }
@@ -88,12 +88,12 @@ inline std::string strRemove(std::string s, const std::vector<char> &rs) {
 inline std::string strReplace(std::string s, const std::string &f, const std::string &r){
 	std::string out = s;
 	size_t index = 0;
-	const size_t sl = f.length();
+	const size_t findLength = f.length();
 	while (true) {
 		index = out.find(f, index);
 		if (index == std::string::npos) break;
-		out.replace(index, sl, r);
-		index += sl;
+		out.replace(index, findLength, r);
+		index += findLength;
 	}
 	return out;
 }

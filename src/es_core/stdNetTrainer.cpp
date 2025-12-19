@@ -167,7 +167,7 @@ void NetTrainer::BackwardPropagation() {
 	// Input layer gradient
 	BackLayer(dZ, trainData, 0);
 }
-}
+
 /**
  * Update network parameters using standard gradient descent
  */
