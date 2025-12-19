@@ -2,6 +2,7 @@
 #ifndef ES_PCH_H
 #include "windowsx.h"
 #include <Eigen/dense>
+#include <cfloat>
 #include <fstream>
 #include <iostream>
 #include <malloc.h>

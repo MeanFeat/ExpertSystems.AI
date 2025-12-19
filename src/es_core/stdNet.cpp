@@ -225,14 +225,16 @@ void Net::LoadNetwork(const string &fName) {
 					}
 				}
 				else {
-					assert(shapeDims.size() == 2);
-					if (state == NetParseState::weightShape) {
-						if (layerIndex == 0) {
-							params.layerSizes.push_back(shapeDims[0]);
+					// Ensure we have exactly 2 dimensions before proceeding
+					if (shapeDims.size() == 2) {
+						if (state == NetParseState::weightShape) {
+							if (layerIndex == 0) {
+								params.layerSizes.push_back(shapeDims[0]);
+							}
+							params.layerSizes.push_back(shapeDims[1]);
 						}
-						params.layerSizes.push_back(shapeDims[1]);
+						tempMat = MatrixXf(shapeDims[0], shapeDims[1]);
 					}
-					tempMat = MatrixXf(shapeDims[0], shapeDims[1]);
 					state = NetParseState::none;
 				}
 			}
