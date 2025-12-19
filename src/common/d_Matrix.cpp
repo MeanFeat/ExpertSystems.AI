@@ -1,12 +1,17 @@
 #include "d_Matrix.h"
 #include "../es_cuda/d_math.h"
+
 d_Matrix::d_Matrix(): rowCount(0), colCount(0), device_data(nullptr){}
+
 d_Matrix::d_Matrix(const int rows, const int cols) {
 	this->rowCount = rows;
 	this->colCount = cols;
-	// TODO: Spiral and Radian require managed, but gesture doesn't
+	// Note: Using cudaMallocManaged for unified memory access
+	// This allows both CPU and GPU to access the same memory
+	// NN_Spiral and NN_PredictRadian require managed memory for their workflows
 	d_check(cudaMallocManaged(VOID_PTR(&device_data), memSize()));
-}	
+}
+
 d_Matrix::d_Matrix(const float *host_data, const int rows, const int cols) {
 	this->rowCount = rows;
 	this->colCount = cols;
@@ -52,12 +57,18 @@ void d_Matrix::setShape(const int rows, const int cols) {
 	colCount = cols;
 }
 void d_Matrix::free() {
+	if (device_data == nullptr) {
+		return;  // Nothing to free
+	}
+	
 	cudaPointerAttributes attr = {};
 	cudaPointerGetAttributes(&attr, device_data);
 	if (attr.devicePointer != nullptr && (attr.type == cudaMemoryTypeDevice || attr.type == cudaMemoryTypeManaged)) {
 		d_check(cudaFree(device_data));
+		device_data = nullptr;
 	}
 	else if (attr.hostPointer != nullptr && attr.type == cudaMemoryTypeHost) {
 		d_check(cudaFreeHost(device_data));
+		device_data = nullptr;
 	}
 }
