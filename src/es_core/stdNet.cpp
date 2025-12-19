@@ -225,6 +225,7 @@ void Net::LoadNetwork(const string &fName) {
 					}
 				}
 				else {
+					assert(shapeDims.size() == 2);
 					if (state == NetParseState::weightShape) {
 						if (layerIndex == 0) {
 							params.layerSizes.push_back(shapeDims[0]);

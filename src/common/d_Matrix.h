@@ -1,5 +1,10 @@
 #pragma once
 #include "d_cudahelpers.h"
+
+/**
+ * CUDA device matrix class for GPU-accelerated matrix operations
+ * Manages memory allocation and deallocation on the GPU
+ */
 class d_Matrix {
 public:
 	d_Matrix();

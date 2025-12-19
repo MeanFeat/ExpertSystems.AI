@@ -5,6 +5,11 @@
 #include "windows.h"
 #include <iostream>
 
+/**
+ * CUDA error checking and profiling utilities
+ * Provides macros for debugging CUDA operations and measuring performance
+ */
+
 #ifdef _DEBUG
 #define CUDA_ERROR_CHECK
 #define d_check( err ) checkErr( err, __FILE__, __LINE__ )
@@ -20,11 +25,21 @@
 #define d_profile(start,stop,output, args ) args;
 #endif
 
+/**
+ * Helper function to stop CUDA profiling and calculate elapsed time
+ */
 inline void profileStop(cudaEvent_t start, cudaEvent_t stop, float *output) {
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(output, start, stop);
 }
+
+/**
+ * Check CUDA error and output debug information if error occurred
+ * @param err CUDA error code to check
+ * @param file Source file where error check is performed
+ * @param line Line number where error check is performed
+ */
 inline void checkErr(cudaError err, const char *file, const int line) {
 #ifdef CUDA_ERROR_CHECK
 	if (cudaSuccess != err) {
@@ -36,6 +51,12 @@ inline void checkErr(cudaError err, const char *file, const int line) {
 #endif
 	return;
 }
+
+/**
+ * Catch and report the last CUDA error
+ * @param file Source file where error catch is performed
+ * @param line Line number where error catch is performed
+ */
 inline void catchErr(const char *file, const int line) {
 #ifdef CUDA_ERROR_CHECK
 	cudaError err = cudaGetLastError();

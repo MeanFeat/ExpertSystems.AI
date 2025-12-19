@@ -1,6 +1,11 @@
 #pragma once
 #include "types.h"
 
+/**
+ * Activation Functions
+ * Inline implementations for forward pass through various activation functions
+ */
+
 inline Eigen::MatrixXf CalcSigmoid(const Eigen::MatrixXf &in) {
 	// Use Eigen's efficient array operations instead of manual loop
 	return ((-1.f * in).array().exp() + 1.f).cwiseInverse();
@@ -27,13 +32,21 @@ inline Eigen::MatrixXf Log(const Eigen::MatrixXf &in) {
 	return in.array().log();
 }
 
+/**
+ * Neural network parameters structure
+ * Contains all weights, biases, and layer configurations
+ */
 struct NetParameters {
-	std::vector<int> layerSizes;
-	std::vector<Activation> layerActivations;
-	std::vector<Eigen::MatrixXf> W;
-	std::vector<Eigen::MatrixXf> b;
+	std::vector<int> layerSizes;					// Number of neurons in each layer
+	std::vector<Activation> layerActivations;		// Activation function for each layer
+	std::vector<Eigen::MatrixXf> W;					// Weight matrices for each layer
+	std::vector<Eigen::MatrixXf> b;					// Bias vectors for each layer
 };
 
+/**
+ * Feed-forward neural network class
+ * Supports multiple hidden layers with configurable activation functions
+ */
 class Net {
 public:
 	Net();

@@ -1,20 +1,31 @@
 #pragma once
 #include "stdNet.h"
 
+/**
+ * Training parameters for backpropagation
+ * Contains gradients and hyperparameters for training
+ */
 struct NetTrainParameters {
-	std::vector<Eigen::MatrixXf> dW;
-	std::vector<Eigen::MatrixXf> db;
-	float learningRate;
-	float learningMod;
-	float regTerm;
+	std::vector<Eigen::MatrixXf> dW;	// Weight gradients
+	std::vector<Eigen::MatrixXf> db;	// Bias gradients
+	float learningRate;					// Base learning rate
+	float learningMod;					// Learning rate modifier
+	float regTerm;						// Regularization term (L2)
 };
 
+/**
+ * Cache for storing intermediate values during forward/backward propagation
+ */
 struct NetCache {
-	std::vector<Eigen::MatrixXf> Z;
-	std::vector<Eigen::MatrixXf> A;
-	float cost;
+	std::vector<Eigen::MatrixXf> Z;		// Pre-activation values
+	std::vector<Eigen::MatrixXf> A;		// Post-activation values
+	float cost;							// Current cost/loss value
 };
 
+/**
+ * Neural network trainer class
+ * Implements backpropagation with Adam optimizer and L2 regularization
+ */
 class NetTrainer {
 public:
 	NetTrainer();

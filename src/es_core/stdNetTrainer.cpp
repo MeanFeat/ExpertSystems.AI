@@ -4,9 +4,9 @@
 using namespace Eigen;
 using namespace std;
 
-//ADAM
-static constexpr float b1 = 0.9f;
-static constexpr float b2 = 1.f - FLT_EPSILON;
+//ADAM optimizer hyperparameters
+static constexpr float b1 = 0.9f;			// First moment decay rate
+static constexpr float b2 = 1.f - FLT_EPSILON;	// Second moment decay rate
 static constexpr float b1_sqr = b1 * b1;
 static constexpr float b2_sqr = b2 * b2;
 static constexpr float inv_b1 = 1.f - b1;
@@ -131,10 +131,16 @@ MatrixXf NetTrainer::BackActivation(const MatrixXf &dZ, const int layerIndex) {
 	case Sine:
 		return BackSine(wTdz, layerIndex);
 	case Linear:
-		break;
+	default:
+		return wTdz;
 	}
-	return dZ; 
 }
+/**
+ * Compute gradients for a single layer during backpropagation
+ * @param dZ Error gradient from upper layer
+ * @param lowerA Activations from lower layer
+ * @param layerIndex Index of current layer
+ */
 void NetTrainer::BackLayer(MatrixXf &dZ, const MatrixXf &lowerA, const int layerIndex) {
 	dZ = BackActivation(dZ, layerIndex);
 	const float lambda = 0.5f * (trainParams.regTerm * trainParams.learningMod);
@@ -142,15 +148,29 @@ void NetTrainer::BackLayer(MatrixXf &dZ, const MatrixXf &lowerA, const int layer
 	trainParams.db[layerIndex] = dZ.rowwise().sum();
 	trainParams.db[layerIndex] *= coeff;
 }
+
+/**
+ * Perform backpropagation through all layers
+ * Computes gradients for weights and biases using the chain rule
+ */
 void NetTrainer::BackwardPropagation() {
+	// Output layer gradient
 	MatrixXf dZ = MatrixXf(cache.A.back() - trainLabels);
 	trainParams.dW.back() = coeff * (dZ * cache.A[cache.A.size() - 2].transpose());
 	trainParams.db.back() = coeff * dZ.rowwise().sum();
+	
+	// Hidden layers gradients (from output to input)
 	for (int l = int(network->GetParams().layerActivations.size()) - 2; l >= 1; --l) {
 		BackLayer(dZ, cache.A[l - 1], l);
 	}
+	
+	// Input layer gradient
 	BackLayer(dZ, trainData, 0);
 }
+}
+/**
+ * Update network parameters using standard gradient descent
+ */
 void NetTrainer::UpdateParameters() const {
 	const float learnRate = (trainParams.learningRate*trainParams.learningMod);
 	for (int i = 0; i < (int)trainParams.dW.size(); ++i) {
@@ -158,6 +178,11 @@ void NetTrainer::UpdateParameters() const {
 		network->GetParams().b[i] -= learnRate * trainParams.db[i];
 	}
 }
+
+/**
+ * Update network parameters using Adam optimizer
+ * Implements adaptive learning rates with momentum
+ */
 void NetTrainer::UpdateParametersAdam() {
 	const float learnRate = (trainParams.learningRate*trainParams.learningMod);
 	for (int i = 0; i < int(trainParams.dW.size()); ++i) {
