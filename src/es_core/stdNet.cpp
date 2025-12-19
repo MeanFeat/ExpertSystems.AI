@@ -225,8 +225,8 @@ void Net::LoadNetwork(const string &fName) {
 					}
 				}
 				else {
-					// Ensure we have exactly 2 dimensions before proceeding
-					if (shapeDims.size() == 2) {
+					// Ensure we have at least 2 dimensions before proceeding
+					if (shapeDims.size() >= 2) {
 						if (state == NetParseState::weightShape) {
 							if (layerIndex == 0) {
 								params.layerSizes.push_back(shapeDims[0]);
