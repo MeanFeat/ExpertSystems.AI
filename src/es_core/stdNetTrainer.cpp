@@ -14,6 +14,9 @@ static constexpr float inv_b2 = 1.f - b2;
 static constexpr float inv_b_sq1 = 1.f - b1_sqr;
 static constexpr float inv_b_sq2 = 1.f - b2_sqr;
 
+// Leaky ReLU alpha parameter
+static constexpr float LEAKY_RELU_ALPHA = 0.01f;
+
 NetTrainer::NetTrainer()
 	: network(nullptr)
 	, coeff(0)
@@ -107,7 +110,7 @@ Eigen::MatrixXf NetTrainer::BackReLu(const Eigen::MatrixXf &wZ, const int index)
 }
 
 Eigen::MatrixXf NetTrainer::BackLReLu(const Eigen::MatrixXf &wZ, const int index) const {
-	return (wZ).cwiseProduct(cache.A[index].unaryExpr([](float elem) { return elem > 0.f ? 1.f : 0.01f; }));
+	return (wZ).cwiseProduct(cache.A[index].unaryExpr([](float elem) { return elem > 0.f ? 1.f : LEAKY_RELU_ALPHA; }));
 }
 
 Eigen::MatrixXf NetTrainer::BackSine(const Eigen::MatrixXf &wZ, int index) {

@@ -1,5 +1,5 @@
 #include "d_Matrix.h"
-#include "..\es_cuda\d_math.h"
+#include "../es_cuda/d_math.h"
 d_Matrix::d_Matrix(): rowCount(0), colCount(0), device_data(nullptr){}
 d_Matrix::d_Matrix(const int rows, const int cols) {
 	this->rowCount = rows;
@@ -51,7 +51,7 @@ void d_Matrix::setShape(const int rows, const int cols) {
 	rowCount = rows;
 	colCount = cols;
 }
-void d_Matrix::free() const {
+void d_Matrix::free() {
 	cudaPointerAttributes attr = {};
 	cudaPointerGetAttributes(&attr, device_data);
 	if (attr.devicePointer != nullptr && (attr.type == cudaMemoryTypeDevice || attr.type == cudaMemoryTypeManaged)) {

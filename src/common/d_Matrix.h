@@ -9,12 +9,9 @@ public:
 	d_Matrix& operator=(const d_Matrix& other);
 	~d_Matrix();
 	float* &d_data() { return device_data; }
-	float* d_data() const { return device_data; }
-	int rows() { return rowCount; }
-	int cols() { return colCount; }
+	const float* d_data() const { return device_data; }
 	int rows() const { return rowCount; }
 	int cols() const { return colCount; }
-	int size() { return rowCount * colCount; }
 	int size() const { return rowCount * colCount; }
 	d_Matrix serialize();
 	d_Matrix serialize() const;
@@ -22,7 +19,7 @@ public:
 	void setShape(int rows, int cols);
 	size_t memSize() { return size() * sizeof(float); }
 	size_t memSize() const { return size() * sizeof(float); }
-	void free() const;
+	void free();
 private:
 	int rowCount;
 	int colCount;

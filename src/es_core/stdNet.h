@@ -2,13 +2,8 @@
 #include "types.h"
 
 inline Eigen::MatrixXf CalcSigmoid(const Eigen::MatrixXf &in) {
-	//return in.unaryExpr([](float elem) { return 1.f / (1.f + exp(-elem)); });
-	//return ((-1.f*in).array().exp() + 1).cwiseInverse();
-	Eigen::MatrixXf out = Eigen::MatrixXf(in.rows(), in.cols());
-	for (int i = 0; i < in.size(); i++) {
-		*(out.data() + i) = 1.f / (1.f + expf(-(*(in.data() + i))));
-	}
-	return out;
+	// Use Eigen's efficient array operations instead of manual loop
+	return ((-1.f * in).array().exp() + 1.f).cwiseInverse();
 }
 
 inline Eigen::MatrixXf CalcTanh(const Eigen::MatrixXf &in) {
@@ -20,7 +15,8 @@ inline Eigen::MatrixXf CalcReLU(const Eigen::MatrixXf &in) {
 }
 
 inline Eigen::MatrixXf CalcLReLU(const Eigen::MatrixXf &in) {
-	return in.unaryExpr([](float elem) { return elem > 0.0f ? elem : elem * 0.01f; });
+	constexpr float LEAKY_RELU_ALPHA = 0.01f;
+	return in.unaryExpr([](float elem) { return elem > 0.0f ? elem : elem * LEAKY_RELU_ALPHA; });
 }
 
 inline Eigen::MatrixXf CalcSine(const Eigen::MatrixXf &in) {
@@ -45,19 +41,20 @@ public:
 	Net(const std::string &fName);
 	~Net();
 	NetParameters &GetParams();
+	const NetParameters &GetParams() const;
 	void SetParams(std::vector<Eigen::MatrixXf> W, std::vector<Eigen::MatrixXf> b);
 	static Eigen::MatrixXf Activate(const Eigen::MatrixXf &In, Activation act);
-	Eigen::MatrixXf ForwardPropagation(const Eigen::MatrixXf &X);
-	int GetDepth();
+	Eigen::MatrixXf ForwardPropagation(const Eigen::MatrixXf &X) const;
+	int GetDepth() const;
 	void RandomInit(float scale);
-	float GetSumOfWeights();
-	int GetNeuronCount();
-	std::string ToString();
-	void SaveNetwork(const std::string fName);
-	void LoadNetwork(const std::string fName);
-	int GetInputSize();
-	int GetOutputSize();
-	int GetNodeCount();
+	float GetSumOfWeights() const;
+	int GetNeuronCount() const;
+	std::string ToString() const;
+	void SaveNetwork(const std::string &fName) const;
+	void LoadNetwork(const std::string &fName);
+	int GetInputSize() const;
+	int GetOutputSize() const;
+	int GetNodeCount() const;
 private:
 	void AddLayer(int a, int b);
 	NetParameters params;

@@ -27,6 +27,9 @@ Net::~Net() {}
 NetParameters &Net::GetParams() {
 	return params;
 }
+const NetParameters &Net::GetParams() const {
+	return params;
+}
 void Net::SetParams(vector<MatrixXf> W, vector<MatrixXf> b) {
 	params.W = W;
 	params.b = b;
@@ -39,29 +42,22 @@ MatrixXf Net::Activate(const MatrixXf &In, Activation act) {
 	switch (act) {
 	case Linear:
 		return In;
-		break;
 	case Sigmoid:
 		return CalcSigmoid(In);
-		break;
 	case Tanh:
 		return CalcTanh(In);
-		break;
 	case ReLU:
 		return CalcReLU(In);
-		break;
 	case LReLU:
 		return CalcLReLU(In);
-		break;
 	case Sine:
 		return CalcSine(In);
-		break;
 	default:
 		return In;
-		break;
 	}
 }
 
-MatrixXf Net::ForwardPropagation(const MatrixXf &X) {
+MatrixXf Net::ForwardPropagation(const MatrixXf &X) const {
 	MatrixXf lastOutput = X;
 	for (int i = 0; i < (int)params.layerSizes.size() - 1; ++i) {
 		MatrixXf weighed = params.W[i] * lastOutput;
@@ -71,7 +67,7 @@ MatrixXf Net::ForwardPropagation(const MatrixXf &X) {
 	return lastOutput;
 }
 
-int Net::GetDepth() {
+int Net::GetDepth() const {
 	return (int)GetParams().layerSizes.size() - 1;
 }
 
@@ -82,7 +78,7 @@ void Net::RandomInit(float scale) {
 	}
 }
 
-float Net::GetSumOfWeights() {
+float Net::GetSumOfWeights() const {
 	float result = 0.f;
 	for (int i = 0; i < GetParams().W.size(); i++) {
 		result += GetParams().W[i].sum();
@@ -90,7 +86,7 @@ float Net::GetSumOfWeights() {
 	return result;
 }
 
-int Net::GetNeuronCount() {
+int Net::GetNeuronCount() const {
 	int result = 0;
 	for (int i = 0; i < GetDepth(); i++) {
 		result += GetParams().layerSizes[i];
@@ -117,13 +113,13 @@ Activation ReadActivation(string str) {
 }
 string WriteActivation(Activation act) {
 	switch (act) {
-	case Sigmoid:	return "sigmoid";		break;
-	case Tanh:		return "tanh";			break;
-	case ReLU:		return "relu";			break;
-	case LReLU:		return "leaky_relu";	break;
-	case Sine:		return "sine";			break;
-	case Linear:	//fall through
-	default: return "linear"; break;
+	case Sigmoid:	return "sigmoid";
+	case Tanh:		return "tanh";
+	case ReLU:		return "relu";
+	case LReLU:		return "leaky_relu";
+	case Sine:		return "sine";
+	case Linear:
+	default: return "linear";
 	}
 }
 
@@ -153,10 +149,10 @@ inline void OutputMatrix(std::ofstream &file, int tb, std::string shape, std::st
 	}
 }
 
-void Net::SaveNetwork(const string fName) {
+void Net::SaveNetwork(const string &fName) const {
 	ofstream file(fName);
 	int tb = 0;
-	NetParameters *p = &params;
+	const NetParameters *p = &params;
 	for (int lyrIdx = 0; lyrIdx < GetDepth(); lyrIdx++) {
 		OUT_LINE(file, tb, "{");
 		OUT_LINE(file, ++tb, "\"layer\" :" << lyrIdx << ",");
@@ -179,7 +175,7 @@ enum class NetParseState {
 	none
 };
 
-void Net::LoadNetwork(const string fName) {
+void Net::LoadNetwork(const string &fName) {
 	std::string line;
 	ifstream file(fName);
 	vector<int> shapeDims;
@@ -280,14 +276,14 @@ void Net::LoadNetwork(const string fName) {
 	file.close();
 }
 
-int Net::GetInputSize() {
+int Net::GetInputSize() const {
 	return params.layerSizes[0];
 }
-int Net::GetOutputSize() {
+int Net::GetOutputSize() const {
 	return params.layerSizes.back();
 }
 
-int Net::GetNodeCount() {
+int Net::GetNodeCount() const {
 	int count = 0;
 	for (int i = 0; i < GetDepth(); i++) {
 		count += GetParams().layerSizes[i];
@@ -295,9 +291,9 @@ int Net::GetNodeCount() {
 	return count;
 }
 
-string Net::ToString() {
+string Net::ToString() const {
 	string str;
-	NetParameters *p = &params;
+	const NetParameters *p = &params;
 	for (int i = 0; i < GetDepth(); i++) {
 		str += "[" + to_string(p->layerSizes[i]) + "]";
 	}
