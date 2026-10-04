@@ -3,6 +3,7 @@ setlocal enabledelayedexpansion
 
 IF NOT EXIST tests_cpp.generated goto Create
 IF NOT EXIST tests_unit.generated goto Create
+IF NOT EXIST tests_gtest.generated goto Create
 
 Set "orig=tests.list"
 Set "gen=tests_cpp.generated"
@@ -31,7 +32,8 @@ if "%orig_ModDateTime%" LSS "%gen_ModDateTime%" goto Message
 echo Generating Files
 > tests_cpp.generated echo.
 > tests_unit.generated echo.
-start ../../bin/Release/es_test_app.exe "-b" tests.list tests_cpp.generated tests_unit.generated
+> tests_gtest.generated echo.
+start ../../bin/Release/es_test_app.exe "-b" tests.list tests_cpp.generated tests_unit.generated tests_gtest.generated
 goto End
 
 :Message

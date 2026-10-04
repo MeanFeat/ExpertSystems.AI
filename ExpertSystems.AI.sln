@@ -19,6 +19,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "es_test_lib", "src\es_test\
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "es_test_unit", "src\es_test\es_test_unit.vcxproj", "{0BCBD4FB-F732-4BC5-97C2-E3DC8C5ED6BC}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "es_test_gtest", "src\es_test\es_test_gtest.vcxproj", "{5D1B2A64-7C0E-4E0B-9F6B-3A1C8E2D4F71}"
+EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{6A3D7E68-5F02-4960-814E-2A33DD69853D}"
 	ProjectSection(SolutionItems) = preProject
 		TestSettings1.testsettings = TestSettings1.testsettings
@@ -94,6 +96,10 @@ Global
 		{0BCBD4FB-F732-4BC5-97C2-E3DC8C5ED6BC}.Release|x64.Build.0 = Release|x64
 		{0BCBD4FB-F732-4BC5-97C2-E3DC8C5ED6BC}.Release|x86.ActiveCfg = Release|Win32
 		{0BCBD4FB-F732-4BC5-97C2-E3DC8C5ED6BC}.Release|x86.Build.0 = Release|Win32
+		{5D1B2A64-7C0E-4E0B-9F6B-3A1C8E2D4F71}.Debug|x64.ActiveCfg = Debug|x64
+		{5D1B2A64-7C0E-4E0B-9F6B-3A1C8E2D4F71}.Debug|x64.Build.0 = Debug|x64
+		{5D1B2A64-7C0E-4E0B-9F6B-3A1C8E2D4F71}.Release|x64.ActiveCfg = Release|x64
+		{5D1B2A64-7C0E-4E0B-9F6B-3A1C8E2D4F71}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
