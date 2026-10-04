@@ -4,10 +4,24 @@
 #include <random>
 using namespace Eigen;
 using namespace std;
-static cudaStream_t cuda_stream_default;
-static cudaStream_t cuda_stream_load;
-static cudaStream_t cuda_stream_cublas;
+static cudaStream_t cuda_stream_default = nullptr;
+static cudaStream_t cuda_stream_load = nullptr;
+static cudaStream_t cuda_stream_cublas = nullptr;
 cudaEvent_t start, stop;
+static void createStreams() {
+	if (!cuda_stream_default) cudaStreamCreate(&cuda_stream_default);
+	if (!cuda_stream_load) cudaStreamCreate(&cuda_stream_load);
+	if (!cuda_stream_cublas) cudaStreamCreate(&cuda_stream_cublas);
+}
+// Streams are shared statics: reset them so later to_device/to_host calls don't use destroyed handles
+static void destroyStreams() {
+	cudaDeviceSynchronize();
+	cublasSetStream(cublasHandle, nullptr);
+	for (cudaStream_t* s : { &cuda_stream_default, &cuda_stream_load, &cuda_stream_cublas }) {
+		if (*s) cudaStreamDestroy(*s);
+		*s = nullptr;
+	}
+}
 void d_NetBatchParams::CreateBatchData(const MatrixXf& data, const MatrixXf& labels) {
 	shuffledBatchIndices.resize(data.cols());
 	iota(shuffledBatchIndices.begin(), shuffledBatchIndices.end(), 0);
@@ -88,9 +102,7 @@ d_NetBatchTrainingData::d_NetBatchTrainingData(const MatrixXf& data, const Matri
 }
 d_NetTrainer::d_NetTrainer(): network(nullptr), cache(), trainParams(), batchParams(), profiler() {
 	d_mathInit();
-	cudaStreamCreate(&cuda_stream_default);
-	cudaStreamCreate(&cuda_stream_load);
-	cudaStreamCreate(&cuda_stream_cublas);
+	createStreams();
 }
 
 d_NetTrainer::d_NetTrainer(Net *net, const MatrixXf &data, const MatrixXf &labels, const float weightScale, const float learnRate, const float regTerm, const d_NetBatchParams& batchParameters)
@@ -104,9 +116,7 @@ d_NetTrainer::d_NetTrainer(Net *net, const MatrixXf &data, const MatrixXf &label
 	cudaEventCreate(&stop);
 #endif
 	d_mathInit();
-	cudaStreamCreate(&cuda_stream_default);
-	cudaStreamCreate(&cuda_stream_load);
-	cudaStreamCreate(&cuda_stream_cublas);
+	createStreams();
 	cublasSetStream(cublasHandle, cuda_stream_cublas);
 	cublasSetMathMode(cublasHandle, CUBLAS_TF32_TENSOR_OP_MATH);
 	trainParams.trainExamplesCount = uint(data.cols());
@@ -136,11 +146,11 @@ d_NetTrainer::d_NetTrainer(Net *net, const MatrixXf &data, const MatrixXf &label
 	}
 	d_check(cudaMalloc(&cache.d_cost, sizeof(float)));
 	d_check(cudaMallocHost(VOID_PTR(&cache.cost), sizeof(float)));
+	batchParams.LoadBatchData(0, cache.d_A[0], d_trainLabels);
 }
 d_NetTrainer::~d_NetTrainer() {
-	cudaStreamDestroy(cuda_stream_default);
-	cudaStreamDestroy(cuda_stream_load);
 	free();
+	destroyStreams();
 }
 void d_NetTrainer::free() {
 	trainParams.clear();
