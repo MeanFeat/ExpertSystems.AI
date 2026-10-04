@@ -8,6 +8,7 @@
 
 #define GENERATED_TESTS "tests_cpp.generated"
 #define GENERATED_UNIT_TESTS "tests_unit.generated"
+#define GENERATED_GTEST_TESTS "tests_gtest.generated"
 #define DEFAULTTEXTCOLOUR 10
 #define TEXTCOLOUR(token, c) HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE); SetConsoleTextAttribute(h, c); token; SetConsoleTextAttribute(h, DEFAULTTEXTCOLOUR);
 

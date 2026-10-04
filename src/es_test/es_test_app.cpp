@@ -131,6 +131,26 @@ void CreateGeneratedCpp(const string fName) {
 	PrintFile(fName);
 }
 
+void CreateGeneratedGTest(const string fName) {
+	ofstream file(fName.c_str());
+	file << "//GENERATED FILE" << endl;
+	for (int fn = 0; fn < functionNames.size(); fn++) {
+		for (int arg = 0; arg < arguments[fn].size(); arg++) {
+			string spacer = arg <= 9 ? "0" : "";
+			string str = strRemoveSpaces(arguments[fn][arg]);
+			str = strReplace(str, ".", "p");
+			str = strReplace(str, ",", "x");
+			str = strReplace(str, "-", "n");
+			str = strRemove(str, { '{' ,'}' ,'(' ,')' });
+			file << "GTEST_RUN(" << categories[fn] << "_" << headers[fn] << ", ";
+			file << prefixes[fn] << spacer << arg << "_" << str << ", ";
+			file << functionNames[fn] << "(" << arguments[fn][arg] << "));" << endl;
+		}
+	}
+	file.close();
+	PrintFile(fName);
+}
+
 void RunAllTests() {
 	initParallel();
 	setNbThreads(4);
@@ -146,13 +166,16 @@ int main(int argc, char** argv) {
 		for (int i = 0; i <= argc; ++i) {
 			if (strcmp(argv[i], "-b") == 0) {
 				if (i + 3 > argc) {
-					cout << "-b flag takes 3 args: .list file, cpp.generated, unit.generated" << endl;
+					cout << "-b flag takes 3 args (+1 optional): .list file, cpp.generated, unit.generated, [gtest.generated]" << endl;
 					return 0;
 				}
 				cout << "Building File" << endl;
 				ReadTestList(argv[i + 1]);
 				CreateGeneratedCpp(argv[i + 2]);
 				CreateGeneratedUnit(argv[i + 3]);
+				if (i + 4 < argc) {
+					CreateGeneratedGTest(argv[i + 4]);
+				}
 			}
 			else if (strcmp(argv[i], "-a") == 0) {
 				RunAllTests();
@@ -174,6 +197,7 @@ int main(int argc, char** argv) {
 				ReadTestList("tests.list");
 				CreateGeneratedCpp(GENERATED_TESTS);
 				CreateGeneratedUnit(GENERATED_UNIT_TESTS);
+				CreateGeneratedGTest(GENERATED_GTEST_TESTS);
 				break;
 			}
 			else if (in == 65) { //'a'
