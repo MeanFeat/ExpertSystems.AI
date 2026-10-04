@@ -5,7 +5,7 @@
 #include "windows.h"
 #include <iostream>
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(ES_CUDA_CHECKS)
 #define CUDA_ERROR_CHECK
 #define d_check( err ) checkErr( err, __FILE__, __LINE__ )
 #define d_catchErr()    catchErr( __FILE__, __LINE__ )
