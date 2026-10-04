@@ -128,7 +128,9 @@ public:
 	d_Matrix Forward(const d_Matrix &Input) const;
 	float CalcCost(const d_Matrix& Test, const d_Matrix& Labels) const;
 	float GetCost()	{
-		return GetCache().cost;
+		const float cost = GetCache().cost;
+		check(isnan(cost) == false);
+		return cost;
 	}
 	float GetCoeff() const {
 		return trainParams.coefficient;
