@@ -1,6 +1,8 @@
 #include "d_math.h"
 #include "color.h"
 using namespace std;
+bool isInitialized = false;
+cublasHandle_t cublasHandle;
 __device__ ptrFunc d_pfAdd = __fadd_rn;
 __device__ ptrFunc d_pfSub = __fsub_rn;
 __device__ ptrFunc d_pfMult = __fmul_rn;
@@ -10,6 +12,12 @@ namespace {
 	ptrFunc pfSub;
 	ptrFunc pfMult;
 	ptrFunc pfSet;
+	void checkCublas(cublasStatus_t status) {
+		if (status != CUBLAS_STATUS_SUCCESS) {
+			OutputDebugStringA("cuBLAS initialization failed.\n");
+			exit(EXIT_FAILURE);
+		}
+	}
 }
 #define setFunctionPointer(h_ptr, d_ptr) cudaMemcpyFromSymbol(&(h_ptr), d_ptr, sizeof(ptrFunc));
 __device__
@@ -22,7 +30,7 @@ uint GetCol() {
 }
 void d_mathInit() {
 	if (!isInitialized) {
-		cublasCreate(&cublasHandle); d_catchErr();
+		checkCublas(cublasCreate(&cublasHandle));
 		setFunctionPointer(pfAdd, d_pfAdd)
 		setFunctionPointer(pfSub, d_pfSub)
 		setFunctionPointer(pfMult, d_pfMult)
@@ -193,6 +201,48 @@ void d_mult_rhsT(d_Matrix* dst, const d_Matrix *srcA, const d_Matrix *srcB) {
 		dst->d_data(), m);
 	d_catchErr();
 }
+__global__
+void sumValues_Kernel(float *dst, const float *src, const uint count) {
+	__shared__ float partial[256];
+	const uint tid = blockIdx.x * blockDim.x + threadIdx.x;
+	float value = 0.f;
+	for (uint i = tid; i < count; i += blockDim.x * gridDim.x) {
+		value += src[i];
+	}
+	partial[threadIdx.x] = value;
+	__syncthreads();
+	for (uint stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+		if (threadIdx.x < stride) partial[threadIdx.x] += partial[threadIdx.x + stride];
+		__syncthreads();
+	}
+	if (threadIdx.x == 0) atomicAdd(dst, partial[0]);
+}
+__global__
+void sumSquares_Kernel(float *dst, const float *src, const uint count) {
+	__shared__ float partial[256];
+	const uint tid = blockIdx.x * blockDim.x + threadIdx.x;
+	float value = 0.f;
+	for (uint i = tid; i < count; i += blockDim.x * gridDim.x) {
+		value += src[i] * src[i];
+	}
+	partial[threadIdx.x] = value;
+	__syncthreads();
+	for (uint stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+		if (threadIdx.x < stride) partial[threadIdx.x] += partial[threadIdx.x + stride];
+		__syncthreads();
+	}
+	if (threadIdx.x == 0) atomicAdd(dst, partial[0]);
+}
+__global__
+void gatherColumns_Kernel(float *dst, const float *src, const int *indices, const uint rows, const uint count) {
+	const uint tid = blockIdx.x * blockDim.x + threadIdx.x;
+	const uint total = rows * count;
+	if (tid < total) {
+		const uint row = tid % rows;
+		const uint col = tid / rows;
+		dst[tid] = src[uint(indices[col]) * rows + row];
+	}
+}
 void d_sumMatrix(float* dst, const d_Matrix *src) {
 	d_Matrix r = d_Matrix(src->rows(), 1);
 	d_sumRows(&r, src); d_catchErr();
@@ -341,31 +391,21 @@ void d_backSigmoid(d_Matrix *dst, const d_Matrix *d_W, const d_Matrix *d_dZ, con
 	d_catchErr();
 }
 __global__
-void backTanh_Kernel(float *dst, const float *d_A, const uint m, const uint n, const uint k) {
-	extern __shared__ float shared[];
-	float *dst_shared = shared;
-	float *d_A_shared = dst_shared + blockDim.x * blockDim.y;
+void backTanh_Kernel(float *dst, const float *d_A, const uint m, const uint k) {
 	const uint row = GetRow();
 	const uint col = GetCol();
 	if (col < k && row < m) {
 		const uint index = col * m + row;
-		const uint local_index = threadIdx.x * blockDim.y + threadIdx.y;
-		dst_shared[local_index] = dst[index];
-		d_A_shared[local_index] = d_A[index];
-		__syncthreads();
-		const float x = d_A_shared[local_index];
-		dst_shared[local_index] = __fmul_rd(dst_shared[local_index], __fsub_rd(1.f, __fmul_rd(x, x)));
-		dst[index] = dst_shared[local_index];
+		const float x = d_A[index];
+		dst[index] = __fmul_rd(dst[index], __fsub_rd(1.f, __fmul_rd(x, x)));
 	}
 } /* dst = (d_W.T * d_dZ) (*) 1 - d_A^2 */
 void d_backTanh(d_Matrix *dst, const d_Matrix *d_W, const d_Matrix *d_dZ, const d_Matrix *d_A) {
 	d_mult_lhsT(dst, d_W, d_dZ);
 	const uint m = d_W->cols(); //reverse for transpose
-	const uint n = d_W->rows(); //reverse for transpose
 	const uint k = d_dZ->cols();
-	auto sharedSize = 2 * BLOCK_SIZE * BLOCK_SIZE * sizeof(float);
-	backTanh_Kernel << <dimGrid(m, k), dimBlock(), sharedSize >> >
-		(dst->d_data(), d_A->d_data(), m, n, k);
+	backTanh_Kernel << <dimGrid(m, k), dimBlock() >> >
+		(dst->d_data(), d_A->d_data(), m, k);
 	d_catchErr();
 }
 __global__
@@ -415,26 +455,30 @@ void d_backSine(d_Matrix *dst, const d_Matrix *d_W, const d_Matrix *d_dZ, const 
 	backSine_Kernel << <dimGrid(m, k), dimBlock() >> >
 		(dst->d_data(), d_A->d_data(), m, k);
 	d_catchErr();
-} /* dst = coeff * (d_dZ * d_A.T) */
-void d_set_dW(d_Matrix* dst, const d_Matrix* d_dZ, const d_Matrix* d_AT, const float coefficient) {
-	d_mult(dst, d_dZ, d_AT); d_catchErr();
-	d_mult_scalar(dst, coefficient); d_catchErr();
 }
 __global__
-void set_dW_Reg_Kernel(float *dst, const float *d_W, const float regTerm, const uint m, const uint n, const uint k) {
-	const uint row = GetRow();
-	const uint col = GetCol();
-	if (col < k && row < m) {
-		dst[col * m + row] += (regTerm * d_W[col * m + row]);
+void scaleValues_Kernel(float *values, const uint count, const float scale) {
+	const uint tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < count) values[tid] *= scale;
+}
+/* dst = coeff * (d_dZ * d_A.T) */
+void d_set_dW(d_Matrix* dst, const d_Matrix* d_dZ, const d_Matrix* d_A, const float coefficient) {
+	d_mult_rhsT(dst, d_dZ, d_A);
+	const uint count = uint(dst->size());
+	if (count) scaleValues_Kernel<<<(count + 255) / 256, 256>>>(dst->d_data(), count, coefficient);
+	d_catchErr();
+}
+__global__
+void set_dW_Reg_Kernel(float *dst, const float *d_W, const float coefficient, const float regTerm, const uint count) {
+	const uint tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < count) {
+		dst[tid] = coefficient * (dst[tid] + (regTerm * d_W[tid]));
 	}
 } /* dst = coeff * (d_dZ * d_A.T) (+) (0.5f * learn * d_W) */
-void d_set_dW_Reg(d_Matrix* dst, const d_Matrix* d_dZ, const d_Matrix* d_AT, const d_Matrix *d_W, const float coefficient, const float regTerm) {
-	const uint m = d_dZ->rows();
-	const uint n = d_dZ->cols();
-	const uint k = d_AT->cols();
-	d_mult(dst, d_dZ, d_AT);
-	set_dW_Reg_Kernel << <dimGrid(m, k), dimBlock() >> > (dst->d_data(), d_W->d_data(), regTerm, m, n, k);
-	d_mult_scalar(dst, coefficient);
+void d_set_dW_Reg(d_Matrix* dst, const d_Matrix* d_dZ, const d_Matrix* d_A, const d_Matrix *d_W, const float coefficient, const float regTerm) {
+	d_mult_rhsT(dst, d_dZ, d_A);
+	const uint count = uint(dst->size());
+	if (count) set_dW_Reg_Kernel<<<(count + 255) / 256, 256>>>(dst->d_data(), d_W->d_data(), coefficient, regTerm, count);
 	d_catchErr();
 }
 void d_sumRows(d_Matrix* dst, const d_Matrix* src) {
@@ -445,84 +489,102 @@ void d_sumRows(d_Matrix* dst, const d_Matrix* src) {
 	ones.free(); d_catchErr();
 }
 /* dst = coeff * (srcA.SumOfRows) */
-void d_set_db(d_Matrix* dst, const d_Matrix* d_dZ, const float coefficient) {
-	d_sumRows(dst, d_dZ); d_catchErr();
-	d_mult_scalar(dst, coefficient); d_catchErr();
+__global__
+void set_db_Kernel(float *dst, const float *src, const uint rows, const uint cols, const float coefficient) {
+	__shared__ float partial[256];
+	const uint row = blockIdx.x;
+	float sum = 0.f;
+	for (uint col = threadIdx.x; col < cols; col += blockDim.x) {
+		sum += src[col * rows + row];
+	}
+	partial[threadIdx.x] = sum;
+	__syncthreads();
+	for (uint stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+		if (threadIdx.x < stride) partial[threadIdx.x] += partial[threadIdx.x + stride];
+		__syncthreads();
+	}
+	if (threadIdx.x == 0) dst[row] = coefficient * partial[0];
+}
+void d_set_db(d_Matrix *dst, const d_Matrix *d_dZ, const float coefficient) {
+	const uint rows = uint(d_dZ->rows());
+	if (rows) set_db_Kernel<<<rows, 256>>>(dst->d_data(), d_dZ->d_data(), rows, uint(d_dZ->cols()), coefficient);
+	d_catchErr();
 }
 #define BETA1 0.9f
 #define BETA2 (1.f-FLT_EPSILON)
 __global__
-void updateParameterADAM_Kernel(float *dst, const uint N, const float *d_derivative, float *d_momentum, float *d_momentumSqr, const float learn, const uint k) {
-	extern __shared__ float s_data[];
-	float *s_derivative = s_data;
-	const uint dim = (blockDim.x * blockDim.y);
-	float *s_momentum = s_derivative + dim;
-	float *s_momentumSqr = s_momentum + dim;
-
-	const uint row = GetRow();
-	const uint col = GetCol();
-	const uint tid = row * k + col;
-	
-	const uint local_tid = threadIdx.y * blockDim.x + threadIdx.x;
-
+void updateParameterADAM_Kernel(float *dst, const uint N, const float *d_derivative, float *d_momentum, float *d_momentumSqr, const float learn) {
+	const uint tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < N) {
-		s_derivative[local_tid] = d_derivative[tid];
-		s_momentum[local_tid] = d_momentum[tid];
-		s_momentumSqr[local_tid] = d_momentumSqr[tid];
-
-		__syncthreads(); 
-
-		s_momentum[local_tid] = BETA1 * s_momentum[local_tid] + (1.f - BETA1) * s_derivative[local_tid];
-		s_momentumSqr[local_tid] = BETA2 * s_momentumSqr[local_tid] + (1.f - BETA2) * (s_derivative[local_tid] * s_derivative[local_tid]) ;
-		dst[tid] -= learn * (s_momentum[local_tid] / (1.f - (BETA1 * BETA1)) / (sqrtf(s_momentumSqr[local_tid] / (1.f - (BETA2 * BETA2))) + FLT_EPSILON));
-	
-		d_momentum[tid] = s_momentum[local_tid];
-		d_momentumSqr[tid] = s_momentumSqr[local_tid];
+		const float derivative = d_derivative[tid];
+		const float momentum = BETA1 * d_momentum[tid] + (1.f - BETA1) * derivative;
+		const float momentumSqr = BETA2 * d_momentumSqr[tid] + (1.f - BETA2) * derivative * derivative;
+		dst[tid] -= learn * (momentum / (1.f - (BETA1 * BETA1)) /
+			(sqrtf(momentumSqr / (1.f - (BETA2 * BETA2))) + FLT_EPSILON));
+		d_momentum[tid] = momentum;
+		d_momentumSqr[tid] = momentumSqr;
 	}
 }
 void d_updateParameterADAM(d_Matrix* dst, const d_Matrix* d_derivative, const d_Matrix* d_momentum, const d_Matrix* d_momentumSqr, const float learnRate) {
-	const uint m = dst->rows();
-	const uint k = dst->cols();
-	const uint dim = dimBlock().x * dimBlock().y * 3;
-	size_t sharedMemSize = dim * sizeof(float);
-	updateParameterADAM_Kernel << <dimGrid(m, k), dimBlock(), sharedMemSize>> >(dst->d_data(), dst->size(), d_derivative->d_data(), d_momentum->d_data(), d_momentumSqr->d_data(), learnRate, k);
+	const uint count = uint(dst->size());
+	if (count) updateParameterADAM_Kernel<<<(count + 255) / 256, 256>>>(
+		dst->d_data(), count, d_derivative->d_data(), d_momentum->d_data(), d_momentumSqr->d_data(), learnRate);
 	d_catchErr();
 }
 __global__
 void updateParameter_Kernel(float *dst, const uint N, const float *d_derivative, const float learn) {
-	const uint tid = blockIdx.x;
+	const uint tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < N) {
 		dst[tid] -= learn * d_derivative[tid];
 	}
 }
 void d_updateParameter(d_Matrix* dst, const d_Matrix* d_derivative, const float learnRate) {
-	updateParameter_Kernel << <dst->size(), 1 >> >
-		(dst->d_data(), dst->size(), d_derivative->d_data(), learnRate);
+	const uint count = uint(dst->size());
+	if (count) updateParameter_Kernel<<<(count + 255) / 256, 256>>>(
+		dst->d_data(), count, d_derivative->d_data(), learnRate);
 	d_catchErr();
 }
 void d_square(d_Matrix* dst, const d_Matrix* src) {
 	d_launch2D_elem(pfMult, dst, src->d_data(), src->d_data());
 }
 __global__
-void finalCost_Kernel(float *dst, const float *sumTotal, const float regMult, const float trainCount) {
-	dst[0] = dst[0] + (0.5f * (regMult * (sumTotal[0] / (trainCount*2.0f))));
+void finalCost_Kernel(float *dst, const float *weightSum, float *epochCost, const float regMult, const float coefficient, const float trainCount) {
+	dst[0] = (dst[0] * coefficient) + (0.5f * (regMult * (weightSum[0] / (trainCount * 2.0f))));
+	if (epochCost) atomicAdd(epochCost, dst[0]);
 }
-void d_calcCost(float *dst, const d_Matrix* d_err, const vector<d_Matrix>* d_modelWeights, const float regMult, float const coeff, const float trainLabelCount) {
-	d_Matrix *d_diff = new d_Matrix(d_err->rows(), d_err->cols());
-	d_square(d_diff, d_err);
-	d_sumMatrix(dst, d_diff);
-	d_mult_scalar(dst, coeff, 1, 1);
-	// Add Regularization
-	d_Matrix d_sqrSumTotal = d_Matrix(1, 1);
-	d_set_elem(d_sqrSumTotal.d_data(), 0.f);
-	d_Matrix d_sqrSum = d_Matrix(1, 1);
-	for (uint i = 0; i < uint(d_modelWeights->size()) - 1; ++i) {
-		const d_Matrix *layerWeights = &d_modelWeights->at(i);
-		d_Matrix d_squared(layerWeights->rows(), layerWeights->cols());
-		d_square(&d_squared, layerWeights); d_catchErr();
-		d_sumMatrix(d_sqrSum.d_data(), &d_squared); d_catchErr();
-		d_launch_single_thread(pfAdd, d_sqrSumTotal.d_data(), d_sqrSum.d_data()); d_catchErr();
+void d_calcCost(float *dst, float *weightSum, float *epochCost, const d_Matrix* d_err,
+	const vector<d_Matrix>* d_modelWeights, const float regMult, const float coeff, const float trainLabelCount) {
+	d_check(cudaMemsetAsync(dst, 0, sizeof(float)));
+	d_check(cudaMemsetAsync(weightSum, 0, sizeof(float)));
+	const uint errorCount = uint(d_err->size());
+	if (errorCount) {
+		const uint blocks = min((errorCount + 255) / 256, 1024u);
+		sumSquares_Kernel<<<blocks, 256>>>(dst, d_err->d_data(), errorCount);
 	}
-	finalCost_Kernel << <1, 1 >> > (dst, d_sqrSumTotal.d_data(), regMult, trainLabelCount); d_catchErr();
-	d_diff->free();
+	for (size_t i = 0; i + 1 < d_modelWeights->size(); ++i) {
+		const d_Matrix& weights = d_modelWeights->at(i);
+		const uint count = uint(weights.size());
+		if (count) {
+			const uint blocks = min((count + 255) / 256, 1024u);
+			sumSquares_Kernel<<<blocks, 256>>>(weightSum, weights.d_data(), count);
+		}
+	}
+	finalCost_Kernel<<<1, 1>>>(dst, weightSum, epochCost, regMult, coeff, trainLabelCount);
+	d_catchErr();
+}
+__global__
+void averageCost_Kernel(float *epochCost, const int batchCount) {
+	epochCost[0] /= float(batchCount);
+}
+void d_averageCost(float *epochCost, const int batchCount) {
+	averageCost_Kernel<<<1, 1>>>(epochCost, batchCount);
+	d_catchErr();
+}
+void d_gatherColumns(float *dst, const float *src, const int *indices, const int rows, const int count) {
+	const uint elementCount = uint(rows) * uint(count);
+	if (elementCount) {
+		gatherColumns_Kernel<<<(elementCount + 255) / 256, 256>>>(
+			dst, src, indices, uint(rows), uint(count));
+		d_catchErr();
+	}
 }

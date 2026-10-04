@@ -1,23 +1,34 @@
 #include "d_Matrix.h"
 #include "..\es_cuda\d_math.h"
-d_Matrix::d_Matrix(): rowCount(0), colCount(0), device_data(nullptr){}
+d_Matrix::d_Matrix(): rowCount(0), colCount(0), device_data(nullptr) {}
 d_Matrix::d_Matrix(const int rows, const int cols) {
 	this->rowCount = rows;
 	this->colCount = cols;
-	// TODO: Spiral and Radian require managed, but gesture doesn't
-	d_check(cudaMallocManaged(VOID_PTR(&device_data), memSize()));
-}	
+	device_data = nullptr;
+	if (memSize() > 0) d_check(cudaMalloc(VOID_PTR(&device_data), memSize()));
+}
 d_Matrix::d_Matrix(const float *host_data, const int rows, const int cols) {
 	this->rowCount = rows;
 	this->colCount = cols;
-	d_check(cudaMalloc(VOID_PTR(&device_data), memSize()));
-	d_check(cudaMemcpyAsync(device_data, host_data, memSize(), cudaMemcpyHostToDevice));
+	device_data = nullptr;
+	if (memSize() > 0) {
+		d_check(cudaMalloc(VOID_PTR(&device_data), memSize()));
+		d_check(cudaMemcpy(device_data, host_data, memSize(), cudaMemcpyHostToDevice));
+	}
 }
 d_Matrix::d_Matrix(const d_Matrix& other):	rowCount(other.rowCount),
-											colCount(other.colCount)	
+											colCount(other.colCount),
+											device_data(nullptr)
 {
-	d_check(cudaMalloc(VOID_PTR(&device_data), other.memSize()));
-	d_check(cudaMemcpyAsync(device_data, other.device_data, other.memSize(), cudaMemcpyDeviceToDevice));
+	if (other.memSize() > 0) {
+		d_check(cudaMalloc(VOID_PTR(&device_data), other.memSize()));
+		d_check(cudaMemcpy(device_data, other.device_data, other.memSize(), cudaMemcpyDeviceToDevice));
+	}
+}
+d_Matrix::d_Matrix(d_Matrix&& other) noexcept : rowCount(other.rowCount), colCount(other.colCount), device_data(other.device_data) {
+	other.rowCount = 0;
+	other.colCount = 0;
+	other.device_data = nullptr;
 }
 d_Matrix& d_Matrix::operator=(const d_Matrix& other)
 {
@@ -26,8 +37,21 @@ d_Matrix& d_Matrix::operator=(const d_Matrix& other)
 	free();
 	rowCount = other.rowCount;
 	colCount = other.colCount;
-	d_check(cudaMalloc(VOID_PTR(&device_data), other.memSize()));
-	d_check(cudaMemcpyAsync(device_data, other.device_data, other.memSize(), cudaMemcpyDeviceToDevice));
+	if (other.memSize() > 0) {
+		d_check(cudaMalloc(VOID_PTR(&device_data), other.memSize()));
+		d_check(cudaMemcpy(device_data, other.device_data, other.memSize(), cudaMemcpyDeviceToDevice));
+	}
+	return *this;
+}
+d_Matrix& d_Matrix::operator=(d_Matrix&& other) noexcept {
+	if (this == &other) return *this;
+	free();
+	rowCount = other.rowCount;
+	colCount = other.colCount;
+	device_data = other.device_data;
+	other.rowCount = 0;
+	other.colCount = 0;
+	other.device_data = nullptr;
 	return *this;
 }
 d_Matrix::~d_Matrix() {
@@ -51,13 +75,9 @@ void d_Matrix::setShape(const int rows, const int cols) {
 	rowCount = rows;
 	colCount = cols;
 }
-void d_Matrix::free() const {
-	cudaPointerAttributes attr = {};
-	cudaPointerGetAttributes(&attr, device_data);
-	if (attr.devicePointer != nullptr && (attr.type == cudaMemoryTypeDevice || attr.type == cudaMemoryTypeManaged)) {
+void d_Matrix::free() {
+	if (device_data) {
 		d_check(cudaFree(device_data));
-	}
-	else if (attr.hostPointer != nullptr && attr.type == cudaMemoryTypeHost) {
-		d_check(cudaFreeHost(device_data));
+		device_data = nullptr;
 	}
 }

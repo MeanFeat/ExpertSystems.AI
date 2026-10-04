@@ -42,15 +42,28 @@ struct d_NetTrainDerivatives : public d_NetBaseStructure{
 	std::vector<d_Matrix> d_db;
 };
 struct d_NetCache  : public d_NetBaseStructure {
+	d_NetCache() : cost(0.f), hostCost(nullptr), d_cost(nullptr), d_weightSum(nullptr), d_epochCost(nullptr) {}
 	void clear()
 	{
 		flushMat(d_A);
         flushMat(d_dZ);
+		if (d_cost) d_check(cudaFree(d_cost));
+		if (d_weightSum) d_check(cudaFree(d_weightSum));
+		if (d_epochCost) d_check(cudaFree(d_epochCost));
+		if (hostCost) d_check(cudaFreeHost(hostCost));
+		hostCost = nullptr;
+		d_cost = nullptr;
+		d_weightSum = nullptr;
+		d_epochCost = nullptr;
+		cost = 0.f;
 	}
 	std::vector<d_Matrix> d_A;
 	std::vector<d_Matrix> d_dZ;
 	float cost;
+	float *hostCost;
 	float *d_cost;
+	float *d_weightSum;
+	float *d_epochCost;
 };
 enum d_NetBatchShuffleType {
 	None,
@@ -58,7 +71,7 @@ enum d_NetBatchShuffleType {
 	SlideWindow
 };
 struct d_NetBatchTrainingData {
-	void clear() const
+	void clear()
 	{
 		d_Data.free();
 		d_Labels.free();
@@ -88,7 +101,7 @@ struct d_NetBatchParams {
 	}
 	void CreateBatchData(const MatrixXf &data, const MatrixXf &labels);
 	void ShuffleData();
-	void LoadBatchData(const int batchIndex, d_Matrix& Input, d_Matrix& Output);
+	void LoadBatchData(const int batchIndex, d_Matrix& Input, d_Matrix& Output, int *deviceIndices);
 	d_NetBatchShuffleType GetShuffleType() const {
 		return shuffleType;
 	}
@@ -115,7 +128,7 @@ public:
 	void free();
 	//TODO: Make copy constructor
 	static d_Matrix to_device(MatrixXf matrix);
-	static MatrixXf to_host(d_Matrix d_matrix);
+	static MatrixXf to_host(const d_Matrix& d_matrix);
 	d_NetTrainParameters &GetTrainParams();
 	d_NetCache &GetCache();
 	const d_NetProfiler *GetProfiler() const;
@@ -163,6 +176,7 @@ private:
 	d_NetTrainDerivatives momentum;
 	d_NetTrainDerivatives momentumSqr;
 	int *d_Buffer;
+	int *d_batchIndices;
 	std::vector<d_Matrix> d_VisualA;
 	d_NetProfiler profiler;
 	void AddLayer(int A, int B);

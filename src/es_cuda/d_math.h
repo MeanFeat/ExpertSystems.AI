@@ -6,8 +6,8 @@
 #include <cuda_runtime.h>
 #include <vector>
 
-static bool isInitialized = false;
-static cublasHandle_t cublasHandle;
+extern bool isInitialized;
+extern cublasHandle_t cublasHandle;
 
 typedef unsigned int uint;
 
@@ -54,12 +54,14 @@ void d_backReLU(d_Matrix *dst, const d_Matrix *d_W, const d_Matrix *d_dZ, const 
 void d_backLReLU(d_Matrix *dst, const d_Matrix *d_W, const d_Matrix *d_dZ, const d_Matrix *d_A);
 void d_backSine(d_Matrix *dst, const d_Matrix *d_W, const d_Matrix *d_dZ, const d_Matrix *d_A);
 void d_set_dW(d_Matrix *dst, const d_Matrix *d_dZ, const d_Matrix *d_A, float coefficient);
-void d_set_dW_Reg(d_Matrix *dst, const d_Matrix *d_dZ, const  d_Matrix *d_AT, const  d_Matrix *d_W, float coefficient, float regTerm);
+void d_set_dW_Reg(d_Matrix *dst, const d_Matrix *d_dZ, const d_Matrix *d_A, const d_Matrix *d_W, float coefficient, float regTerm);
 void d_sumRows(d_Matrix* dst, const d_Matrix* src);
 void d_set_db(d_Matrix *dst, const d_Matrix *d_dZ, float coefficient);
 void d_updateParameterADAM(d_Matrix * dst, const d_Matrix *d_derivative, const d_Matrix *d_momentum, const d_Matrix *d_momentumSqr, float learnRate);
 void d_updateParameter(d_Matrix * dst, const d_Matrix * d_derivative, float learnRate);
-void d_calcCost(float *dst, const d_Matrix* d_err, const std::vector<d_Matrix>* d_modelWeights, const  float regMult, const  float coeff, const  float trainLabelCount);
+void d_calcCost(float *dst, float *weightSum, float *epochCost, const d_Matrix* d_err, const std::vector<d_Matrix>* d_modelWeights, float regMult, float coeff, float trainLabelCount);
+void d_averageCost(float *epochCost, int batchCount);
+void d_gatherColumns(float *dst, const float *src, const int *indices, int rows, int count);
 void d_drawPixels(int * buffer, uint m, uint k, const float *vals, bool discrete);
 
 inline __device__ float _set_elem(float a, const float b) {

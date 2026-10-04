@@ -261,3 +261,19 @@ testResult testForwardTrain(Net &nn, const int dataCount) {
 	const MatrixXf test = d_NetTrainer::to_host(d_trainer.GetCache().d_A.back());
 	return GetOutcome(HostSum(control), HostSum(test), kRelNet);
 }
+testResult testTrainEpoch(Net &nn, const int dataCount) {
+	const MatrixXf data = MatrixXf::Random(nn.GetInputSize(), dataCount);
+	const MatrixXf labels = MatrixXf::Random(nn.GetOutputSize(), dataCount);
+	const d_NetBatchShuffleType shuffleTypes[] = { None, ShuffleRandom, SlideWindow };
+	bool passed = true;
+	for (const d_NetBatchShuffleType shuffleType : shuffleTypes) {
+		nn.RandomInit(0.15f);
+		const MatrixXf initialWeights = nn.GetParams().W[0];
+		d_NetTrainer trainer(&nn, data, labels, 1.f, 0.25f, 0.f, d_NetBatchParams(2, shuffleType));
+		trainer.TrainSingleEpoch();
+		trainer.RefreshHostNetwork();
+		passed = passed && std::isfinite(trainer.GetCache().cost) &&
+			!nn.GetParams().W[0].isApprox(initialWeights, 1e-7f);
+	}
+	return GetOutcome(passed ? 1.f : 0.f, 1.f, 0.f, 0.f);
+}

@@ -6,7 +6,9 @@ public:
 	d_Matrix(int rows, int cols);
 	d_Matrix(const float *host_data, int rows, int cols);
 	d_Matrix(const d_Matrix& other);
+	d_Matrix(d_Matrix&& other) noexcept;
 	d_Matrix& operator=(const d_Matrix& other);
+	d_Matrix& operator=(d_Matrix&& other) noexcept;
 	~d_Matrix();
 	float* &d_data() { return device_data; }
 	float* d_data() const { return device_data; }
@@ -22,7 +24,7 @@ public:
 	void setShape(int rows, int cols);
 	size_t memSize() { return size() * sizeof(float); }
 	size_t memSize() const { return size() * sizeof(float); }
-	void free() const;
+	void free();
 private:
 	int rowCount;
 	int colCount;

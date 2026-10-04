@@ -60,3 +60,4 @@ testResult testBackProp(Net &nn, int dataCount);
 testResult testCalcCost(Net &nn, int dataCount);
 testResult testForward(Net &nn, int dataCount);
 testResult testForwardTrain(Net &nn, int dataCount);
+testResult testTrainEpoch(Net &nn, int dataCount);

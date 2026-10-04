@@ -17,7 +17,7 @@ global_variable bool isRecordingData = false;
 global_variable bool shouldSaveChanges = false;
 global_variable bool skipStep = false;
 global_variable float successFade = 0.f;
-global_variable float historyZoom = 1.f;
+global_variable float historyZoom = 5.f;
 global_variable bool isMouseMoving = false;
 
 global_variable vector<Vector2f> mouseCapture;
@@ -304,7 +304,7 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 			Tanh,
 			Tanh,
 			Sigmoid });
-		d_NetTrainer OrigTrainer(&neural, readDeltas, readLabels, 1.f, 1.25f, 0.0001f, d_NetBatchParams(2, SlideWindow));
+		d_NetTrainer OrigTrainer(&neural, readDeltas, readLabels, 1.f, 1.25f, 0.0001f, d_NetBatchParams(10, SlideWindow));
 		trainer = &OrigTrainer;
 		vector<float> history;
 		float h = 0.f;

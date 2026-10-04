@@ -163,7 +163,7 @@ void RunAllTests() {
 
 int main(int argc, char** argv) {
 	if (argc > 1) {
-		for (int i = 0; i <= argc; ++i) {
+		for (int i = 0; i < argc; ++i) {
 			if (strcmp(argv[i], "-b") == 0) {
 				if (i + 3 > argc) {
 					cout << "-b flag takes 3 args (+1 optional): .list file, cpp.generated, unit.generated, [gtest.generated]" << endl;

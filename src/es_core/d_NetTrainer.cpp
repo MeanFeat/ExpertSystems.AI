@@ -4,24 +4,7 @@
 #include <random>
 using namespace Eigen;
 using namespace std;
-static cudaStream_t cuda_stream_default = nullptr;
-static cudaStream_t cuda_stream_load = nullptr;
-static cudaStream_t cuda_stream_cublas = nullptr;
 cudaEvent_t start, stop;
-static void createStreams() {
-	if (!cuda_stream_default) cudaStreamCreate(&cuda_stream_default);
-	if (!cuda_stream_load) cudaStreamCreate(&cuda_stream_load);
-	if (!cuda_stream_cublas) cudaStreamCreate(&cuda_stream_cublas);
-}
-// Streams are shared statics: reset them so later to_device/to_host calls don't use destroyed handles
-static void destroyStreams() {
-	cudaDeviceSynchronize();
-	cublasSetStream(cublasHandle, nullptr);
-	for (cudaStream_t* s : { &cuda_stream_default, &cuda_stream_load, &cuda_stream_cublas }) {
-		if (*s) cudaStreamDestroy(*s);
-		*s = nullptr;
-	}
-}
 void d_NetBatchParams::CreateBatchData(const MatrixXf& data, const MatrixXf& labels) {
 	shuffledBatchIndices.resize(data.cols());
 	iota(shuffledBatchIndices.begin(), shuffledBatchIndices.end(), 0);
@@ -32,77 +15,70 @@ void d_NetBatchParams::ShuffleData() {
 	mt19937 g(rd());
 	shuffle(shuffledBatchIndices.begin(), shuffledBatchIndices.end(), g);
 }
-void d_NetBatchParams::LoadBatchData(const int batchIndex, d_Matrix& Input, d_Matrix& Output) {
+void d_NetBatchParams::LoadBatchData(const int batchIndex, d_Matrix& Input, d_Matrix& Output, int *deviceIndices) {
 	const int start_idx = batchIndex * GetBatchSize();
-	const int end_idx = start_idx + GetBatchSize();
+	const int batchSize = GetBatchSize();
 	const int dataRows = Input.rows();
 	const int labelRows = Output.rows();
+	const int examples = GetTotalTrainingExamples();
 	switch (shuffleType) {
 		case SlideWindow: {
-			int offset_start = start_idx + slideOffset;
-			int offset_end = end_idx + slideOffset;
-			if (offset_start >= GetTotalTrainingExamples())
-			{
-				offset_start -= GetTotalTrainingExamples();
-				offset_end -= GetTotalTrainingExamples();
-			}
-			if (offset_end < GetTotalTrainingExamples()) {
-				cublasSetMatrixAsync(dataRows, GetBatchSize(), sizeof(float), batchDataPool.d_Data.d_data() + offset_start * dataRows, dataRows, Input.d_data(), dataRows, cuda_stream_load);
-				cublasSetMatrixAsync(labelRows, GetBatchSize(), sizeof(float), batchDataPool.d_Labels.d_data() + offset_start * labelRows, labelRows, Output.d_data(), labelRows, cuda_stream_load);
+			const int offsetStart = (start_idx + slideOffset) % examples;
+			const int validSize = min(batchSize, examples - offsetStart);
+			if (validSize == batchSize) {
+				d_check(cudaMemcpyAsync(Input.d_data(), batchDataPool.d_Data.d_data() + offsetStart * dataRows,
+					batchSize * dataRows * sizeof(float), cudaMemcpyDeviceToDevice));
+				d_check(cudaMemcpyAsync(Output.d_data(), batchDataPool.d_Labels.d_data() + offsetStart * labelRows,
+					batchSize * labelRows * sizeof(float), cudaMemcpyDeviceToDevice));
 			}
 			else {
-				const int wrapEnd = offset_end - GetTotalTrainingExamples();
-				const int validSize = GetTotalTrainingExamples() - offset_start;
-				cublasSetMatrixAsync(dataRows, validSize, sizeof(float), batchDataPool.d_Data.d_data() + offset_start * dataRows, dataRows, Input.d_data(), dataRows, cuda_stream_load);
-				cublasSetMatrixAsync(labelRows, validSize, sizeof(float), batchDataPool.d_Labels.d_data() + offset_start * labelRows, labelRows, Output.d_data(), labelRows, cuda_stream_load);
-				cublasSetMatrixAsync(dataRows, wrapEnd, sizeof(float), batchDataPool.d_Data.d_data(), dataRows, Input.d_data() + validSize * dataRows, dataRows, cuda_stream_load);
-				cublasSetMatrixAsync(labelRows, wrapEnd, sizeof(float), batchDataPool.d_Labels.d_data(), labelRows, Output.d_data() + validSize * labelRows, labelRows, cuda_stream_load);
+				const int wrapEnd = batchSize - validSize;
+				d_check(cudaMemcpyAsync(Input.d_data(), batchDataPool.d_Data.d_data() + offsetStart * dataRows,
+					validSize * dataRows * sizeof(float), cudaMemcpyDeviceToDevice));
+				d_check(cudaMemcpyAsync(Output.d_data(), batchDataPool.d_Labels.d_data() + offsetStart * labelRows,
+					validSize * labelRows * sizeof(float), cudaMemcpyDeviceToDevice));
+				d_check(cudaMemcpyAsync(Input.d_data() + validSize * dataRows, batchDataPool.d_Data.d_data(),
+					wrapEnd * dataRows * sizeof(float), cudaMemcpyDeviceToDevice));
+				d_check(cudaMemcpyAsync(Output.d_data() + validSize * labelRows, batchDataPool.d_Labels.d_data(),
+					wrapEnd * labelRows * sizeof(float), cudaMemcpyDeviceToDevice));
 			}
 		}
 		break;
 		case ShuffleRandom:
-			for (int i = start_idx; i < end_idx; ++i) {
-				const int idx = shuffledBatchIndices[i];
-				const int d_idx = (i - start_idx);
-				d_check(cudaMemcpyAsync(Input.d_data() + d_idx * dataRows, batchDataPool.d_Data.d_data() + idx * dataRows, dataRows * sizeof(float), cudaMemcpyHostToDevice, cuda_stream_load));
-				d_check(cudaMemcpyAsync(Output.d_data() + d_idx * labelRows, batchDataPool.d_Labels.d_data() + idx * labelRows, labelRows * sizeof(float), cudaMemcpyHostToDevice, cuda_stream_load));
-			}
+			d_check(cudaMemcpyAsync(deviceIndices, shuffledBatchIndices.data() + start_idx,
+				batchSize * sizeof(int), cudaMemcpyHostToDevice));
+			d_gatherColumns(Input.d_data(), batchDataPool.d_Data.d_data(), deviceIndices, dataRows, batchSize);
+			d_gatherColumns(Output.d_data(), batchDataPool.d_Labels.d_data(), deviceIndices, labelRows, batchSize);
 			break;
 		case None: // fallthrough
 		default: {
-			cublasSetMatrixAsync(dataRows, GetBatchSize(), sizeof(float), batchDataPool.d_Data.d_data() + start_idx * dataRows, dataRows, Input.d_data(), dataRows, cuda_stream_load);
-			cublasSetMatrixAsync(labelRows, GetBatchSize(), sizeof(float), batchDataPool.d_Labels.d_data() + start_idx * labelRows, labelRows, Output.d_data(), labelRows, cuda_stream_load);
+			d_check(cudaMemcpyAsync(Input.d_data(), batchDataPool.d_Data.d_data() + start_idx * dataRows,
+				batchSize * dataRows * sizeof(float), cudaMemcpyDeviceToDevice));
+			d_check(cudaMemcpyAsync(Output.d_data(), batchDataPool.d_Labels.d_data() + start_idx * labelRows,
+				batchSize * labelRows * sizeof(float), cudaMemcpyDeviceToDevice));
 		}
 	}
-	cudaStreamSynchronize(cuda_stream_load);
 	d_catchErr();
 }
 d_Matrix d_NetTrainer::to_device(MatrixXf matrix) {
 	d_mathInit();
 	const int rows = int(matrix.rows());
 	const int cols = int(matrix.cols());
-	d_Matrix d_matrix = d_Matrix(rows, cols);
-	cublasSetMatrixAsync(rows, cols, sizeof(float), matrix.data(), rows, d_matrix.d_data(), rows, cuda_stream_load); d_catchErr();
+	d_Matrix d_matrix(matrix.data(), rows, cols);
 	return d_matrix;
 }
-MatrixXf d_NetTrainer::to_host(d_Matrix d_matrix) {
+MatrixXf d_NetTrainer::to_host(const d_Matrix& d_matrix) {
 	const int rows = d_matrix.rows();
 	const int cols = d_matrix.cols();
 	MatrixXf out = MatrixXf(rows, cols);
-	cublasGetMatrixAsync(rows, cols, sizeof(float), d_matrix.d_data(), rows, out.data(), rows, cuda_stream_load); d_catchErr();
+	d_check(cudaMemcpy(out.data(), d_matrix.d_data(), d_matrix.memSize(), cudaMemcpyDeviceToHost));
 	return out;
 }
-d_NetBatchTrainingData::d_NetBatchTrainingData(const MatrixXf& data, const MatrixXf& labels) {
-	d_Data.setShape(int(data.rows()), int(data.cols()));
-	d_Labels.setShape(int(labels.rows()), int(labels.cols()));
-	d_check(cudaMallocHost(reinterpret_cast<void**>(&d_Data.d_data()), d_Data.memSize()));
-	d_check(cudaMallocHost(reinterpret_cast<void**>(&d_Labels.d_data()), d_Labels.memSize()));
-	d_check(cudaMemcpyAsync(d_Data.d_data(), data.data(), d_Data.memSize(), cudaMemcpyHostToHost, cuda_stream_load));
-	d_check(cudaMemcpyAsync(d_Labels.d_data(), labels.data(), d_Labels.memSize(), cudaMemcpyHostToHost, cuda_stream_load));
-}
-d_NetTrainer::d_NetTrainer(): network(nullptr), cache(), trainParams(), batchParams(), d_Buffer(nullptr), profiler() {
+d_NetBatchTrainingData::d_NetBatchTrainingData(const MatrixXf& data, const MatrixXf& labels)
+	: d_Data(data.data(), int(data.rows()), int(data.cols())),
+	  d_Labels(labels.data(), int(labels.rows()), int(labels.cols())) {}
+d_NetTrainer::d_NetTrainer(): network(nullptr), cache(), trainParams(), batchParams(), d_Buffer(nullptr), d_batchIndices(nullptr), profiler() {
 	d_mathInit();
-	createStreams();
 }
 
 d_NetTrainer::d_NetTrainer(Net *net, const MatrixXf &data, const MatrixXf &labels, const float weightScale, const float learnRate, const float regTerm, const d_NetBatchParams& batchParameters)
@@ -110,18 +86,23 @@ d_NetTrainer::d_NetTrainer(Net *net, const MatrixXf &data, const MatrixXf &label
 	assert(net->GetNodeCount());
 	assert(data.size());
 	assert(labels.size());
+	assert(data.cols() == labels.cols());
 	assert(batchParams.GetBatchCount() > 0);
+	assert(batchParams.GetBatchCount() <= data.cols());
 #if _PROFILE
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 #endif
 	d_mathInit();
-	createStreams();
-	cublasSetStream(cublasHandle, cuda_stream_cublas);
-	cublasSetMathMode(cublasHandle, CUBLAS_TF32_TENSOR_OP_MATH);
+	if (cublasSetStream(cublasHandle, nullptr) != CUBLAS_STATUS_SUCCESS ||
+		cublasSetMathMode(cublasHandle, CUBLAS_DEFAULT_MATH) != CUBLAS_STATUS_SUCCESS) {
+		OutputDebugStringA("Failed to configure cuBLAS for the default stream.\n");
+		exit(EXIT_FAILURE);
+	}
 	trainParams.trainExamplesCount = uint(data.cols());
 	
 	batchParams.CreateBatchData(data, labels);
+	d_check(cudaMalloc(VOID_PTR(&d_batchIndices), batchParams.GetBatchSize() * sizeof(int)));
 	cache.d_A.emplace_back(int(data.rows()), batchParams.GetBatchSize());
 	d_trainLabels = d_Matrix(int(labels.rows()), batchParams.GetBatchSize());
 	trainParams.regTerm = regTerm / float(batchParams.GetBatchCount());
@@ -144,13 +125,14 @@ d_NetTrainer::d_NetTrainer(Net *net, const MatrixXf &data, const MatrixXf &label
 	for (int h = 1; h < network->GetDepth() + 1; ++h) {
 		AddLayer(network->GetParams().layerSizes[h], network->GetParams().layerSizes[h - 1]);
 	}
-	d_check(cudaMalloc(&cache.d_cost, sizeof(float)));
-	d_check(cudaMallocHost(VOID_PTR(&cache.cost), sizeof(float)));
-	batchParams.LoadBatchData(0, cache.d_A[0], d_trainLabels);
+	d_check(cudaMalloc(VOID_PTR(&cache.d_cost), sizeof(float)));
+	d_check(cudaMalloc(VOID_PTR(&cache.d_weightSum), sizeof(float)));
+	d_check(cudaMalloc(VOID_PTR(&cache.d_epochCost), sizeof(float)));
+	d_check(cudaMallocHost(VOID_PTR(&cache.hostCost), sizeof(float)));
+	batchParams.LoadBatchData(0, cache.d_A[0], d_trainLabels, d_batchIndices);
 }
 d_NetTrainer::~d_NetTrainer() {
 	free();
-	destroyStreams();
 }
 void d_NetTrainer::free() {
 	trainParams.clear();
@@ -158,7 +140,10 @@ void d_NetTrainer::free() {
 	derivative.clear();
 	momentum.clear();
 	momentumSqr.clear();
-	d_check(cudaFree(cache.d_cost));
+	if (d_batchIndices) d_check(cudaFree(d_batchIndices));
+	if (d_Buffer) d_check(cudaFree(d_Buffer));
+	d_batchIndices = nullptr;
+	d_Buffer = nullptr;
 }
 d_NetTrainParameters &d_NetTrainer::GetTrainParams() {
 	return trainParams;
@@ -185,6 +170,10 @@ void d_NetTrainer::AddLayer(int A, int B) {
 	momentum.d_db.emplace_back(A, 1);
 	momentumSqr.d_dW.emplace_back(A, B);
 	momentumSqr.d_db.emplace_back(A, 1);
+	d_check(cudaMemsetAsync(momentum.d_dW.back().d_data(), 0, momentum.d_dW.back().memSize()));
+	d_check(cudaMemsetAsync(momentum.d_db.back().d_data(), 0, momentum.d_db.back().memSize()));
+	d_check(cudaMemsetAsync(momentumSqr.d_dW.back().d_data(), 0, momentumSqr.d_dW.back().memSize()));
+	d_check(cudaMemsetAsync(momentumSqr.d_db.back().d_data(), 0, momentumSqr.d_db.back().memSize()));
 }
 void d_NetTrainer::BuildVisualization(const MatrixXf &screen, int * buffer, const int m, const int k) {
 	const int size = m*k;
@@ -201,7 +190,7 @@ void d_NetTrainer::Visualization(int *buffer, const int m, const int k, const bo
 			d_activate(&d_VisualA[i + 1], network->GetParams().layerActivations[i]);
 		}
 	d_drawPixels(d_Buffer, m, k, d_VisualA.back().d_data(), discrete);
-	d_check(cudaMemcpyAsync(buffer, d_Buffer, m*k * sizeof(int), cudaMemcpyDeviceToHost, cuda_stream_default));
+	d_check(cudaMemcpyAsync(buffer, d_Buffer, m*k * sizeof(int), cudaMemcpyDeviceToHost));
 	); //d_profile
 }
 d_Matrix d_NetTrainer::Forward(const d_Matrix &Input) const {
@@ -222,24 +211,25 @@ void d_NetTrainer::ForwardTrain() {
 }
 float d_NetTrainer::CalcCost(const d_Matrix& Test, const d_Matrix& Labels) const {
 	float *d_cost;
+	float *d_weightSum;
 	float cost;
-	d_check(cudaMalloc(&d_cost, sizeof(float)));
-	d_Matrix Error = Test;
+	d_check(cudaMalloc(VOID_PTR(&d_cost), sizeof(float)));
+	d_check(cudaMalloc(VOID_PTR(&d_weightSum), sizeof(float)));
+	d_Matrix Error(Test);
 	d_subtract_elem(&Error, Test, Labels);
-	d_calcCost(d_cost, &Error, &trainParams.d_W, GetRegMultiplier(), 1.f / float(Labels.cols()), float(Test.cols())); d_catchErr();
-	d_check(cudaMemcpyAsync(&cost, d_cost, sizeof(float), cudaMemcpyDeviceToHost, cuda_stream_default));
+	d_calcCost(d_cost, d_weightSum, nullptr, &Error, &trainParams.d_W, GetRegMultiplier(), 1.f / float(Labels.cols()), float(Test.cols())); d_catchErr();
+	d_check(cudaMemcpy(&cost, d_cost, sizeof(float), cudaMemcpyDeviceToHost));
 	d_check(cudaFree(d_cost));
-	Error.free();
+	d_check(cudaFree(d_weightSum));
 	return cost;
 }
 void d_NetTrainer::CalcCost() const {
-	d_calcCost(cache.d_cost, &cache.d_dZ.back(), &trainParams.d_W, GetRegMultiplier(), GetCoeff(), float(GetTotalTrainingExamples())); d_catchErr();
+	d_calcCost(cache.d_cost, cache.d_weightSum, cache.d_epochCost, &cache.d_dZ.back(), &trainParams.d_W,
+		GetRegMultiplier(), GetCoeff(), float(GetTotalTrainingExamples())); d_catchErr();
 }
 void d_NetTrainer::BackwardPropagation() {
 	d_subtract_elem(&cache.d_dZ.back(), cache.d_A.back(), d_trainLabels); d_catchErr();
-	d_Matrix d_ATLast(cache.d_A[cache.d_A.size() - 2].cols(), cache.d_A[cache.d_A.size() - 2].rows()); d_catchErr();
-	d_transpose(&d_ATLast, &cache.d_A[cache.d_A.size() - 2]); d_catchErr();
-	d_set_dW(&derivative.d_dW.back(), &cache.d_dZ.back(), &d_ATLast, GetCoeff()); d_catchErr();
+	d_set_dW(&derivative.d_dW.back(), &cache.d_dZ.back(), &cache.d_A[cache.d_A.size() - 2], GetCoeff()); d_catchErr();
 	d_set_db(&derivative.d_db.back(), &cache.d_dZ.back(), GetCoeff()); d_catchErr();
 	for (int l = int(network->GetParams().layerActivations.size() - 2); l >= 0; --l) {
 		switch (network->GetParams().layerActivations[l]) {
@@ -262,11 +252,8 @@ void d_NetTrainer::BackwardPropagation() {
 		default:
 			break;
 		}
-		d_Matrix d_AT = d_Matrix(cache.d_A[l].cols(), cache.d_A[l].rows());
-		d_transpose(&d_AT, &cache.d_A[l]);
-		d_set_dW_Reg(&derivative.d_dW[l], &cache.d_dZ[l], &d_AT, &trainParams.d_W[l], GetCoeff(), 0.5f * trainParams.regMod);
+		d_set_dW_Reg(&derivative.d_dW[l], &cache.d_dZ[l], &cache.d_A[l], &trainParams.d_W[l], GetCoeff(), 0.5f * trainParams.regMod);
 		d_set_db(&derivative.d_db[l], &cache.d_dZ[l], GetCoeff());
-		d_AT.free();
 	}
 }
 void d_NetTrainer::UpdateParameters() {
@@ -282,17 +269,18 @@ void d_NetTrainer::UpdateParametersADAM() {
 	}
 }
 void d_NetTrainer::TrainSingleEpoch() {
-	float totalCost = 0.f;
+	d_check(cudaMemsetAsync(cache.d_epochCost, 0, sizeof(float)));
 	for (int i = 0; i < batchParams.GetBatchCount(); ++i) {
-		float batchCost = 0.f;
-		d_profile(start, stop, &profiler.loadBatchData, batchParams.LoadBatchData(i, cache.d_A[0], d_trainLabels));	d_catchErr();
+		d_profile(start, stop, &profiler.loadBatchData, batchParams.LoadBatchData(i, cache.d_A[0], d_trainLabels, d_batchIndices));	d_catchErr();
 		d_profile(start, stop, &profiler.forwardTime,	ForwardTrain());			d_catchErr();
 		d_profile(start, stop, &profiler.backpropTime,	BackwardPropagation());		d_catchErr();
 		d_profile(start, stop, &profiler.updateTime,	UpdateParametersADAM());	d_catchErr();
 		d_profile(start, stop, &profiler.calcCostTime,	CalcCost());				d_catchErr();
-		d_check(cudaMemcpyAsync(&batchCost, cache.d_cost, sizeof(float), cudaMemcpyDeviceToHost, cuda_stream_default));
-		totalCost += batchCost;
 	}
+	d_averageCost(cache.d_epochCost, batchParams.GetBatchCount());
+	d_check(cudaMemcpyAsync(cache.hostCost, cache.d_epochCost, sizeof(float), cudaMemcpyDeviceToHost));
+	d_check(cudaStreamSynchronize(nullptr));
+	cache.cost = *cache.hostCost;
 	if (batchParams.GetShuffleType() == SlideWindow) {
 		const int randStep = 1 + rand() % batchParams.GetBatchSize();
 		batchParams.slideOffset = (batchParams.slideOffset + randStep) % GetTotalTrainingExamples();
@@ -300,5 +288,4 @@ void d_NetTrainer::TrainSingleEpoch() {
 	else if (batchParams.GetShuffleType() == ShuffleRandom) {
 		batchParams.ShuffleData();
 	}
-	cache.cost = totalCost / float(batchParams.GetBatchCount());
 }
