@@ -188,9 +188,9 @@ void d_mult_rhsT(d_Matrix* dst, const d_Matrix *srcA, const d_Matrix *srcB) {
 		m, n, k,
 		&alpha,
 		srcA->d_data(), m,
-		srcB->d_data(), m,
+		srcB->d_data(), n,
 		&beta,
-		dst->d_data(), k);
+		dst->d_data(), m);
 	d_catchErr();
 }
 void d_sumMatrix(float* dst, const d_Matrix *src) {

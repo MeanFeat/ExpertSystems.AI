@@ -37,7 +37,7 @@ struct testData {
 };
 
 void PrintHeader(std::string testType);
-testResult GetOutcome(float cSum, float tSum, float thresh);
+testResult GetOutcome(float cSum, float tSum, float rtol, float atol = 1e-5f);
 testResult testMultipy(int m, int n, int k);
 testResult testTransposeRight(int m, int n, int k);
 testResult testTransposeLeft(int m, int n, int k);
