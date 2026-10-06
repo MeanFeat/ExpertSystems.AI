@@ -16,3 +16,5 @@ Release/
 src/NN_PredictRadian/
 src/NN_SpiralData/
 src/NN_Gesture/
+
+packages/Microsoft.googletest.v140.windesktop.msvcstl.static.rt-dyn.1.8.1.7/
