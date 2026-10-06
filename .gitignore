@@ -1,22 +1,20 @@
-\.vs/ExpertSystems\.AI/v14/
-\.vs/ExpertSystems\.AI/v15/
+x64/
+Debug/
+Release/
+
 *.log
 *.filters
 *.user
-Debug/
-Release/
 *.db
 *.opendb
 *.dll
-
-*.ipch
-\.vs/ExpertSystems/v14/
-.vs/config/*.generated
-
+*.ipch
 *.generated
 
-.idea/
+\.idea/
+\.vs/
+src/NN_PredictRadian/
+src/NN_SpiralData/
+src/NN_Gesture/
 
-.vs/ExpertSystems.AI/v16/.suo
-
-.vs/
+packages/Microsoft.googletest.v140.windesktop.msvcstl.static.rt-dyn.1.8.1.7/
