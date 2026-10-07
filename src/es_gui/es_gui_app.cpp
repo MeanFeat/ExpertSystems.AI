@@ -3,6 +3,7 @@
 #include "stdMatrix.h"
 #include "es_async_trainer.h"
 #include "es_profile.h"
+#include <algorithm>
 #include <d3d11.h>
 #include <string>
 #include "imgui.h"
@@ -47,6 +48,17 @@ static std::string DirOf(const std::string &p) {
 }
 static bool IsAbs(const std::string &p) { return p.size() > 1 && (p[1] == ':' || p[0] == '\\' || p[0] == '/'); }
 
+static Eigen::MatrixXf LoadMatrix(const char *path) {
+	const std::string filePath(path);
+	Eigen::MatrixXf matrix;
+	if (filePath.size() >= 4 && filePath.compare(filePath.size() - 4, 4, ".dat") == 0) {
+		Eigen::read_binary(path, matrix);
+	} else {
+		matrix = Eigen::BuildMatFromFile(filePath);
+	}
+	return matrix;
+}
+
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 	WNDCLASSEX wc = { sizeof(wc), CS_CLASSDC, WndProc, 0, 0, inst, nullptr, nullptr, nullptr, nullptr, "esgui", nullptr };
 	RegisterClassEx(&wc);
@@ -73,10 +85,62 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 	Net net;
 	AsyncTrainer trainer;
 	EsProfile profile;
-	Buf profilePath("profile.esprofile"), netPath("net.json");
+	Buf profilePath("src\\es_gui\\gesture_train.esprofile"), netPath("net.json");
 	Buf trainX, trainY, testX, testY;
-	int inSize = 2, outSize = 1, hidden = 8, layers = 2;
+	int inSize = 2, outSize = 1;
+	std::vector<int> hiddenSizes{ 8, 8 };
+	std::vector<Activation> hiddenActivations{ Tanh, Tanh };
+	Activation outputActivation = Linear;
+	const bool gpuAvailable = IsGpuAvailable();
+	TrainerBackend backend = gpuAvailable ? TrainerBackend::Gpu : TrainerBackend::Cpu;
 	std::string status = "Ready";
+
+	auto SyncArchitecture = [&] {
+		NetParameters &params = net.GetParams();
+		const int depth = net.GetDepth();
+		if (depth < 1 || params.layerSizes.size() != size_t(depth + 1) ||
+			params.layerActivations.size() != size_t(depth)) {
+			status = "Network architecture is invalid";
+			return false;
+		}
+		inSize = params.layerSizes.front();
+		outSize = params.layerSizes.back();
+		hiddenSizes.assign(params.layerSizes.begin() + 1, params.layerSizes.end() - 1);
+		hiddenActivations.assign(params.layerActivations.begin(), params.layerActivations.end() - 1);
+		outputActivation = params.layerActivations.back();
+		status = "Network loaded";
+		return true;
+	};
+
+	auto LoadNetwork = [&] {
+		Net loaded(netPath.s);
+		if (loaded.GetNodeCount() == 0) {
+			status = "Could not load network";
+			return false;
+		}
+		net = loaded;
+		return SyncArchitecture();
+	};
+
+	auto LoadProfile = [&] {
+		if (!profile.Load(profilePath.s)) {
+			status = "Could not read profile";
+			return false;
+		}
+		const std::string dir = DirOf(profilePath.s);
+		auto abs = [&](const std::string &p) { return Buf((IsAbs(p) ? p : dir + p).c_str()); };
+		netPath = abs(profile.network);
+		trainX = abs(profile.trainData);
+		trainY = abs(profile.trainLabels);
+		testX = abs(profile.testData);
+		testY = abs(profile.testLabels);
+		if (!profile.network.empty() && LoadNetwork()) {
+			status = "Profile and network loaded";
+			return true;
+		}
+		if (profile.network.empty()) status = "Profile loaded; no network specified";
+		return profile.network.empty();
+	};
 
 	bool done = false;
 	while (!done) {
@@ -97,13 +161,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 		if (ImGui::CollapsingHeader("Profile", ImGuiTreeNodeFlags_DefaultOpen)) {
 			ImGui::InputText("Profile file", profilePath.s, sizeof(profilePath.s));
 			if (ImGui::Button("Load profile")) {
-				if (profile.Load(profilePath.s)) {
-					const std::string dir = DirOf(profilePath.s);
-					auto abs = [&](const std::string &p) { return Buf((IsAbs(p) ? p : dir + p).c_str()); };
-					netPath = abs(profile.network); trainX = abs(profile.trainData); trainY = abs(profile.trainLabels);
-					testX = abs(profile.testData); testY = abs(profile.testLabels);
-					status = "Profile loaded";
-				} else status = "Could not read profile";
+				LoadProfile();
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Save profile")) {
@@ -120,19 +178,52 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 
 		if (ImGui::CollapsingHeader("Network", ImGuiTreeNodeFlags_DefaultOpen)) {
 			ImGui::BeginDisabled(running);
-			ImGui::InputInt("Inputs", &inSize);
-			ImGui::InputInt("Outputs", &outSize);
-			ImGui::InputInt("Hidden layers", &layers);
-			ImGui::InputInt("Hidden size", &hidden);
-			if (ImGui::Button("New network") && inSize > 0 && outSize > 0 && hidden > 0 && layers >= 0) {
-				std::vector<int> h(layers, hidden);
-				std::vector<Activation> a(layers + 1, Tanh);
-				a.back() = Linear;
-				net = Net(inSize, h, outSize, a);
-				status = "New network created";
+			ImGui::Text("Inputs: %d", inSize);
+			static const char *activationNames[] = { "Linear", "Sigmoid", "Tanh", "ReLU", "Leaky ReLU", "Sine" };
+			for (size_t i = 0; i < hiddenSizes.size(); ++i) {
+				ImGui::PushID((int)i);
+				ImGui::Text("Hidden layer %d", (int)i + 1);
+				ImGui::SameLine();
+				ImGui::SetNextItemWidth(100.f);
+				ImGui::InputInt("Width", &hiddenSizes[i]);
+				ImGui::SameLine();
+				ImGui::SetNextItemWidth(130.f);
+				int activation = (int)hiddenActivations[i];
+				if (ImGui::Combo("Activation", &activation, activationNames, IM_ARRAYSIZE(activationNames))) {
+					hiddenActivations[i] = static_cast<Activation>(activation);
+				}
+				ImGui::SameLine();
+				const bool removeLayer = ImGui::SmallButton("Remove");
+				ImGui::PopID();
+				if (removeLayer) {
+					hiddenSizes.erase(hiddenSizes.begin() + i);
+					hiddenActivations.erase(hiddenActivations.begin() + i);
+					break;
+				}
+			}
+			if (ImGui::Button("Add hidden layer")) {
+				hiddenSizes.push_back(hiddenSizes.empty() ? 8 : hiddenSizes.back());
+				hiddenActivations.push_back(Tanh);
+			}
+			ImGui::Text("Outputs: %d", outSize);
+			ImGui::SetNextItemWidth(130.f);
+			int outputAct = (int)outputActivation;
+			if (ImGui::Combo("Output activation", &outputAct, activationNames, IM_ARRAYSIZE(activationNames))) {
+				outputActivation = static_cast<Activation>(outputAct);
+			}
+			if (ImGui::Button("Create network")) {
+				const bool validWidths = std::all_of(hiddenSizes.begin(), hiddenSizes.end(), [](int width) { return width > 0; });
+				if (inSize > 0 && outSize > 0 && !hiddenSizes.empty() && validWidths) {
+					std::vector<Activation> activations = hiddenActivations;
+					activations.push_back(outputActivation);
+					net = Net(inSize, hiddenSizes, outSize, activations);
+					status = "New network created";
+				} else {
+					status = "Network needs positive dimensions and at least one hidden layer";
+				}
 			}
 			ImGui::SameLine();
-			if (ImGui::Button("Load network")) { net.LoadNetwork(netPath.s); status = "Network loaded"; }
+			if (ImGui::Button("Load network")) LoadNetwork();
 			ImGui::EndDisabled();
 			ImGui::SameLine();
 			if (ImGui::Button("Save network")) {
@@ -145,22 +236,41 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 			ImGui::InputFloat("Learning rate", &profile.learningRate);
 			ImGui::InputFloat("Reg term", &profile.regTerm);
 			ImGui::InputFloat("Weight scale", &profile.weightScale);
+			ImGui::BeginDisabled(running);
+			if (ImGui::RadioButton("CPU", backend == TrainerBackend::Cpu)) backend = TrainerBackend::Cpu;
+			ImGui::SameLine();
+			ImGui::BeginDisabled(!gpuAvailable);
+			if (ImGui::RadioButton("GPU (CUDA)", backend == TrainerBackend::Gpu)) backend = TrainerBackend::Gpu;
+			ImGui::EndDisabled();
+			if (!gpuAvailable) {
+				ImGui::SameLine();
+				ImGui::TextUnformatted("(no CUDA device found)");
+			}
+			ImGui::EndDisabled();
 			if (!running) {
 				if (ImGui::Button("Start")) {
-					Eigen::MatrixXf X = Eigen::BuildMatFromFile(trainX.s), Y = Eigen::BuildMatFromFile(trainY.s);
+					Eigen::MatrixXf X = LoadMatrix(trainX.s), Y = LoadMatrix(trainY.s);
 					Eigen::MatrixXf tX, tY;
-					if (testX.s[0] && testY.s[0]) { tX = Eigen::BuildMatFromFile(testX.s); tY = Eigen::BuildMatFromFile(testY.s); }
-					status = trainer.Start(&net, X, Y, tX, tY, profile.weightScale, profile.learningRate, profile.regTerm)
-						? "Training" : "Cannot start: need a network and train data/labels";
+					/*if (testX.s[0] && testY.s[0]) { tX = LoadMatrix(testX.s); tY = LoadMatrix(testY.s); }*/
+					status = trainer.Start(&net, X, Y, tX, tY, 					profile.weightScale, profile.learningRate, profile.regTerm, backend)
+											? (backend == TrainerBackend::Gpu ? "Training (GPU)" : "Training (CPU)")
+											: "Cannot start: need a network and matching train data/labels";
 				}
+			} else if (trainer.IsStopping()) {
+				ImGui::BeginDisabled();
+				ImGui::Button("Stopping...");
+				ImGui::EndDisabled();
 			} else if (ImGui::Button("Stop")) {
 				trainer.Stop();
-				status = "Stopped";
+				status = "Stop requested; finishing current epoch";
 			}
 			const std::vector<float> tr = trainer.TrainHistory(), te = trainer.TestHistory();
-			if (!tr.empty()) ImGui::PlotHistogram("Train cost", tr.data(), (int)tr.size(), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 80));
-			if (!te.empty()) ImGui::PlotHistogram("Test cost", te.data(), (int)te.size(), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 80));
-			if (!tr.empty()) ImGui::Text("Epochs: %d  train: %.5f  test: %.5f", (int)tr.size(), tr.back(), te.empty() ? 0.f : te.back());
+			if (!tr.empty()) ImGui::PlotLines("Train cost", tr.data(), (int)tr.size(), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 300));
+			if (!te.empty()) ImGui::PlotLines("Test cost", te.data(), (int)te.size(), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 300));
+			if (!tr.empty()) {
+				ImGui::Text("Epochs: %d  average: %.2f epochs/sec  train: %.5f  test: %.5f",
+					(int)tr.size(), trainer.EpochsPerSecond(), tr.back(), te.empty() ? 0.f : te.back());
+			}
 		}
 		ImGui::TextUnformatted(status.c_str());
 		ImGui::End();

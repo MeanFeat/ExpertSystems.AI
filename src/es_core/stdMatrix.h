@@ -14,7 +14,7 @@ namespace Eigen {
 	}
 	template<class Matrix>
 	void read_binary(const char* filename, Matrix& matrix) {
-		std::ifstream in(filename, ios::in | std::ios::binary);
+		std::ifstream in(filename, std::ios::in | std::ios::binary);
 		typename Matrix::Index rows = 0, cols = 0;
 		in.read((char*)(&rows), sizeof(typename Matrix::Index));
 		in.read((char*)(&cols), sizeof(typename Matrix::Index));
