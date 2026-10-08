@@ -12,7 +12,7 @@
 // into Unreal Engine (e.g. by the ProcAnim plugin) without edits.
 //
 //   network=net.json          network file (Net::SaveNetwork format)
-//   train_data=train_x.csv    comma separated, see Eigen::BuildMatFromFile
+//   train_data=train_x.csv    .csv (Eigen::BuildMatFromFile) or .dat (Eigen::read_binary)
 //   train_labels=train_y.csv
 //   test_data=test_x.csv
 //   test_labels=test_y.csv

@@ -53,7 +53,7 @@ static bool IsAbs(const std::string &p) { return p.size() > 1 && (p[1] == ':' ||
 static Eigen::MatrixXf LoadMatrix(const char *path) {
 	const std::string filePath(path);
 	Eigen::MatrixXf matrix;
-	if (filePath.size() >= 4 && filePath.compare(filePath.size() - 4, 4, ".dat") == 0) {
+	if (filePath.size() >= 4 && _stricmp(filePath.c_str() + filePath.size() - 4, ".dat") == 0) {
 		Eigen::read_binary(path, matrix);
 	} else {
 		matrix = Eigen::BuildMatFromFile(filePath);
@@ -79,7 +79,7 @@ static bool BrowseFile(HWND owner, Buf &path, bool save, const char *filter) {
 
 static const char *kProfileFilter = "Profiles (*.esprofile)\0*.esprofile\0All files\0*.*\0\0";
 static const char *kNetFilter = "Networks (*.json)\0*.json\0All files\0*.*\0\0";
-static const char *kDataFilter = "CSV data (*.csv)\0*.csv\0All files\0*.*\0\0";
+static const char *kDataFilter = "Data files (*.csv;*.dat)\0*.csv;*.dat\0CSV (*.csv)\0*.csv\0Binary (*.dat)\0*.dat\0All files\0*.*\0\0";
 
 // Text field plus a "..." button that opens the explorer dialog.
 static bool PathField(HWND owner, const char *label, Buf &path, bool save, const char *filter) {
