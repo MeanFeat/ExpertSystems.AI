@@ -304,6 +304,9 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 			Tanh,
 			Tanh,
 			Sigmoid });
+		if (!CanStartTraining(neural, readDeltas, readLabels)) {
+			return EXIT_FAILURE;
+		}
 		d_NetTrainer OrigTrainer(&neural, readDeltas, readLabels, 1.f, 1.25f, 0.0001f, d_NetBatchParams(10, SlideWindow));
 		trainer = &OrigTrainer;
 		vector<float> history;

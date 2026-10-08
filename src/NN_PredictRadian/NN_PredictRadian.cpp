@@ -188,6 +188,9 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 			WS_OVERLAPPED | WS_SYSMENU | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,
 			WINWIDTH * WINDOWSTRETCHSCALE, WINHEIGHT * WINDOWSTRETCHSCALE, 0, 0, Instance, 0);
 		neural = Net((int)X.rows(), { 32,16 }, (int)Y.rows(), { Tanh,Tanh,Tanh });
+		if (!CanStartTraining(neural, X, Y)) {
+			return EXIT_FAILURE;
+		}
 		d_NetTrainer TempTrainer = d_NetTrainer(&neural, X, Y, 0.15f, 0.5f, 1.0f, d_NetBatchParams(2, SlideWindow));
 		trainer = &TempTrainer;
 		HDC deviceContext = GetDC(window);

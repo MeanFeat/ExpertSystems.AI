@@ -193,6 +193,9 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 			Tanh,
 			Tanh });
 		//h_trainer = NetTrainer(&neural, X, Y, 1.f, 2.f, 20.f);
+		if (!CanStartTraining(neural, X, Y)) {
+			return EXIT_FAILURE;
+		}
 		d_neural = Net(neural);
 		d_NetTrainer d_net_trainer(&d_neural, X, Y, 1.f, 2.f, 20.f, d_NetBatchParams(2,SlideWindow));
 		d_trainer = &d_net_trainer;

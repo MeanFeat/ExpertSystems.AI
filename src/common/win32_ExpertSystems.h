@@ -61,4 +61,23 @@ internal void Win32DisplayBufferInWindow(HDC DeviceContext, HWND hwind, Buffer b
 }
 
 #define WIN32_EXPERTSYSTEMS_H
+// Start guard: a valid network and train data are required, test data is optional.
+inline bool CanStartTraining(Net &network, const Eigen::MatrixXf &trainData, const Eigen::MatrixXf &trainLabels) {
+	const char *error = nullptr;
+	if (network.GetNodeCount() <= 0) {
+		error = "Cannot start: the network is invalid.";
+	}
+	else if (trainData.size() == 0 || trainLabels.size() == 0) {
+		error = "Cannot start: train data is missing or empty.";
+	}
+	else if (trainData.cols() != trainLabels.cols()) {
+		error = "Cannot start: train data and labels have different example counts.";
+	}
+	if (error) {
+		MessageBoxA(nullptr, error, "ExpertSystems.AI", MB_OK | MB_ICONERROR);
+		return false;
+	}
+	return true;
+}
+
 #endif
