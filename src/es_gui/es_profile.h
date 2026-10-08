@@ -12,6 +12,7 @@
 // into Unreal Engine (e.g. by the ProcAnim plugin) without edits.
 //
 //   network=net.json          network file (Net::SaveNetwork format)
+// (absolute paths are not supported; files live in the profile folder or a sub folder)
 //   train_data=train_x.csv    .csv (Eigen::BuildMatFromFile) or .dat (Eigen::read_binary)
 //   train_labels=train_y.csv
 //   test_data=test_x.csv

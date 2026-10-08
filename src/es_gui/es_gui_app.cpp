@@ -48,7 +48,30 @@ static std::string DirOf(const std::string &p) {
 	const size_t i = p.find_last_of("\\/");
 	return i == std::string::npos ? "" : p.substr(0, i + 1);
 }
-static bool IsAbs(const std::string &p) { return p.size() > 1 && (p[1] == ':' || p[0] == '\\' || p[0] == '/'); }
+
+static std::string FullPath(const std::string &p) {
+	char out[MAX_PATH];
+	const DWORD n = GetFullPathNameA(p.empty() ? "." : p.c_str(), MAX_PATH, out, nullptr);
+	std::string r = (n > 0 && n < MAX_PATH) ? std::string(out) : p;
+	for (char &c : r) if (c == '/') c = '\\';
+	return r;
+}
+
+// Data and network files are stored relative to the profile's folder.
+static std::string ResolveInProfile(const Buf &profilePath, const char *rel) {
+	return rel[0] ? DirOf(profilePath.s) + rel : std::string();
+}
+
+// Converts a picked absolute path into a path relative to the profile folder.
+// Fails if the file is not in the profile folder or one of its sub folders.
+static bool MakeRelativeToProfile(const Buf &profilePath, const std::string &picked, Buf &rel) {
+	std::string base = FullPath(DirOf(profilePath.s));
+	if (base.empty() || base.back() != '\\') base += '\\';
+	const std::string full = FullPath(picked);
+	if (full.size() <= base.size() || _strnicmp(full.c_str(), base.c_str(), base.size()) != 0) return false;
+	rel = Buf(full.c_str() + base.size());
+	return true;
+}
 
 static Eigen::MatrixXf LoadMatrix(const char *path) {
 	const std::string filePath(path);
@@ -81,12 +104,23 @@ static const char *kProfileFilter = "Profiles (*.esprofile)\0*.esprofile\0All fi
 static const char *kNetFilter = "Networks (*.json)\0*.json\0All files\0*.*\0\0";
 static const char *kDataFilter = "Data files (*.csv;*.dat)\0*.csv;*.dat\0CSV (*.csv)\0*.csv\0Binary (*.dat)\0*.dat\0All files\0*.*\0\0";
 
+// Browses for a file that must live in the profile folder (or a sub folder); stores the relative path.
+static bool BrowseRelative(HWND owner, const Buf &profilePath, Buf &rel, bool save, const char *filter, std::string &status) {
+	Buf picked(ResolveInProfile(profilePath, rel.s).c_str());
+	if (!BrowseFile(owner, picked, save, filter)) return false;
+	if (!MakeRelativeToProfile(profilePath, picked.s, rel)) {
+		status = "File must be in the profile folder or a sub folder";
+		return false;
+	}
+	return true;
+}
+
 // Text field plus a "..." button that opens the explorer dialog.
-static bool PathField(HWND owner, const char *label, Buf &path, bool save, const char *filter) {
+static bool PathField(HWND owner, const Buf &profilePath, const char *label, Buf &path, bool save, const char *filter, std::string &status) {
 	ImGui::PushID(label);
 	ImGui::InputText(label, path.s, sizeof(path.s));
 	ImGui::SameLine();
-	const bool picked = ImGui::Button("...") && BrowseFile(owner, path, save, filter);
+	const bool picked = ImGui::Button("...") && BrowseRelative(owner, profilePath, path, save, filter, status);
 	ImGui::PopID();
 	return picked;
 }
@@ -145,7 +179,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 	};
 
 	auto LoadNetwork = [&] {
-		Net loaded(netPath.s);
+		Net loaded(ResolveInProfile(profilePath, netPath.s));
 		if (loaded.GetNodeCount() == 0) {
 			status = "Could not load network";
 			return false;
@@ -159,8 +193,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 			status = "Could not read profile";
 			return false;
 		}
-		const std::string dir = DirOf(profilePath.s);
-		auto abs = [&](const std::string &p) { return Buf((IsAbs(p) ? p : dir + p).c_str()); };
+		auto abs = [&](const std::string &p) { return Buf(p.c_str()); };
 		netPath = abs(profile.network);
 		trainX = abs(profile.trainData);
 		trainY = abs(profile.trainLabels);
@@ -201,11 +234,11 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 				profile.testData = testX.s; profile.testLabels = testY.s;
 				status = profile.Save(profilePath.s) ? "Profile saved" : "Could not write profile";
 			}
-			PathField(hwnd, "Network", netPath, false, kNetFilter);
-			PathField(hwnd, "Train data", trainX, false, kDataFilter);
-			PathField(hwnd, "Train labels", trainY, false, kDataFilter);
-			PathField(hwnd, "Test data", testX, false, kDataFilter);
-			PathField(hwnd, "Test labels", testY, false, kDataFilter);
+			PathField(hwnd, profilePath, "Network", netPath, false, kNetFilter, status);
+			PathField(hwnd, profilePath, "Train data", trainX, false, kDataFilter, status);
+			PathField(hwnd, profilePath, "Train labels", trainY, false, kDataFilter, status);
+			PathField(hwnd, profilePath, "Test data", testX, false, kDataFilter, status);
+			PathField(hwnd, profilePath, "Test labels", testY, false, kDataFilter, status);
 		}
 
 		if (ImGui::CollapsingHeader("Network", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -255,11 +288,11 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 				}
 			}
 			ImGui::SameLine();
-			if (ImGui::Button("Load network") && BrowseFile(hwnd, netPath, false, kNetFilter)) LoadNetwork();
+			if (ImGui::Button("Load network") && BrowseRelative(hwnd, profilePath, netPath, false, kNetFilter, status)) LoadNetwork();
 			ImGui::EndDisabled();
 			ImGui::SameLine();
-			if (ImGui::Button("Save network") && BrowseFile(hwnd, netPath, true, kNetFilter)) {
-				trainer.WithNetwork([&] { net.SaveNetwork(netPath.s); });
+			if (ImGui::Button("Save network") && BrowseRelative(hwnd, profilePath, netPath, true, kNetFilter, status)) {
+				trainer.WithNetwork([&] { net.SaveNetwork(ResolveInProfile(profilePath, netPath.s)); });
 				status = "Network saved";
 			}
 		}
@@ -290,7 +323,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 			ImGui::EndDisabled();
 			if (!running) {
 				if (ImGui::Button("Start")) {
-					Eigen::MatrixXf X = LoadMatrix(trainX.s), Y = LoadMatrix(trainY.s);
+					Eigen::MatrixXf X = LoadMatrix(ResolveInProfile(profilePath, trainX.s).c_str()), Y = LoadMatrix(ResolveInProfile(profilePath, trainY.s).c_str());
 					Eigen::MatrixXf tX, tY;
 					/*if (testX.s[0] && testY.s[0]) { tX = LoadMatrix(testX.s); tY = LoadMatrix(testY.s); }*/
 					NetBatchParams batch;
