@@ -5,6 +5,8 @@
 #include "es_profile.h"
 #include <algorithm>
 #include <d3d11.h>
+#include <commdlg.h>
+#pragma comment(lib, "comdlg32.lib")
 #include <string>
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
@@ -57,6 +59,36 @@ static Eigen::MatrixXf LoadMatrix(const char *path) {
 		matrix = Eigen::BuildMatFromFile(filePath);
 	}
 	return matrix;
+}
+
+// Opens the standard Windows Open/Save explorer dialog. Returns true if a path was chosen.
+static bool BrowseFile(HWND owner, Buf &path, bool save, const char *filter) {
+	char file[260];
+	strncpy_s(file, path.s, _TRUNCATE);
+	OPENFILENAMEA ofn = {};
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = owner;
+	ofn.lpstrFilter = filter;
+	ofn.lpstrFile = file;
+	ofn.nMaxFile = sizeof(file);
+	ofn.Flags = OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST | (save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
+	if (!(save ? GetSaveFileNameA(&ofn) : GetOpenFileNameA(&ofn))) return false;
+	path = Buf(file);
+	return true;
+}
+
+static const char *kProfileFilter = "Profiles (*.esprofile)\0*.esprofile\0All files\0*.*\0\0";
+static const char *kNetFilter = "Networks (*.json)\0*.json\0All files\0*.*\0\0";
+static const char *kDataFilter = "CSV data (*.csv)\0*.csv\0All files\0*.*\0\0";
+
+// Text field plus a "..." button that opens the explorer dialog.
+static bool PathField(HWND owner, const char *label, Buf &path, bool save, const char *filter) {
+	ImGui::PushID(label);
+	ImGui::InputText(label, path.s, sizeof(path.s));
+	ImGui::SameLine();
+	const bool picked = ImGui::Button("...") && BrowseFile(owner, path, save, filter);
+	ImGui::PopID();
+	return picked;
 }
 
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
@@ -160,20 +192,20 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 
 		if (ImGui::CollapsingHeader("Profile", ImGuiTreeNodeFlags_DefaultOpen)) {
 			ImGui::InputText("Profile file", profilePath.s, sizeof(profilePath.s));
-			if (ImGui::Button("Load profile")) {
+			if (ImGui::Button("Load profile") && BrowseFile(hwnd, profilePath, false, kProfileFilter)) {
 				LoadProfile();
 			}
 			ImGui::SameLine();
-			if (ImGui::Button("Save profile")) {
+			if (ImGui::Button("Save profile") && BrowseFile(hwnd, profilePath, true, kProfileFilter)) {
 				profile.network = netPath.s; profile.trainData = trainX.s; profile.trainLabels = trainY.s;
 				profile.testData = testX.s; profile.testLabels = testY.s;
 				status = profile.Save(profilePath.s) ? "Profile saved" : "Could not write profile";
 			}
-			ImGui::InputText("Network", netPath.s, sizeof(netPath.s));
-			ImGui::InputText("Train data", trainX.s, sizeof(trainX.s));
-			ImGui::InputText("Train labels", trainY.s, sizeof(trainY.s));
-			ImGui::InputText("Test data", testX.s, sizeof(testX.s));
-			ImGui::InputText("Test labels", testY.s, sizeof(testY.s));
+			PathField(hwnd, "Network", netPath, false, kNetFilter);
+			PathField(hwnd, "Train data", trainX, false, kDataFilter);
+			PathField(hwnd, "Train labels", trainY, false, kDataFilter);
+			PathField(hwnd, "Test data", testX, false, kDataFilter);
+			PathField(hwnd, "Test labels", testY, false, kDataFilter);
 		}
 
 		if (ImGui::CollapsingHeader("Network", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -223,10 +255,10 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 				}
 			}
 			ImGui::SameLine();
-			if (ImGui::Button("Load network")) LoadNetwork();
+			if (ImGui::Button("Load network") && BrowseFile(hwnd, netPath, false, kNetFilter)) LoadNetwork();
 			ImGui::EndDisabled();
 			ImGui::SameLine();
-			if (ImGui::Button("Save network")) {
+			if (ImGui::Button("Save network") && BrowseFile(hwnd, netPath, true, kNetFilter)) {
 				trainer.WithNetwork([&] { net.SaveNetwork(netPath.s); });
 				status = "Network saved";
 			}
