@@ -62,7 +62,7 @@ static Eigen::MatrixXf LoadMatrix(const char *path) {
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 	WNDCLASSEX wc = { sizeof(wc), CS_CLASSDC, WndProc, 0, 0, inst, nullptr, nullptr, nullptr, nullptr, "esgui", nullptr };
 	RegisterClassEx(&wc);
-	HWND hwnd = CreateWindow(wc.lpszClassName, "ExpertSystems.AI Trainer", WS_OVERLAPPEDWINDOW, 100, 100, 1100, 700, nullptr, nullptr, inst, nullptr);
+	HWND hwnd = CreateWindow(wc.lpszClassName, "ExpertSystems.AI Trainer", WS_OVERLAPPEDWINDOW, 100, 100, 1100, 1500, nullptr, nullptr, inst, nullptr);
 
 	DXGI_SWAP_CHAIN_DESC sd = {};
 	sd.BufferCount = 2;
