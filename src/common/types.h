@@ -10,5 +10,11 @@ enum Activation {
 	Sine
 };
 
+enum NetBatchShuffleType {
+	None,
+	ShuffleRandom,
+	SlideWindow
+};
+
 #define TYPES_H
 #endif

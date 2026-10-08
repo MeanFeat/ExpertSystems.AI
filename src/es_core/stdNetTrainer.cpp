@@ -1,5 +1,8 @@
 #include "es_core_pch.h"
 #include "stdNetTrainer.h"
+#include <algorithm>
+#include <numeric>
+#include <random>
 
 using namespace Eigen;
 using namespace std;
@@ -23,20 +26,35 @@ NetTrainer::NetTrainer()
 	, momentumSqr() {
 }
 
-NetTrainer::NetTrainer(Net *net, const MatrixXf &data, const MatrixXf &labels, float weightScale, float learnRate, float regTerm) {
+NetTrainer::NetTrainer(Net *net, const MatrixXf &data, const MatrixXf &labels, float weightScale, float learnRate, float regTerm, const NetBatchParams &batchParameters) {
 	assert(net->GetNodeCount());
 	assert(data.size());
 	assert(labels.size());
+	assert(data.cols() == labels.cols());
 	network = net;
-	trainData = data;
-	trainLabels = labels;
+	batchParams = batchParameters;
+	batchParams.batchCount = max(1, min(batchParams.batchCount, int(data.cols())));
+	if (batchParams.batchCount > 1) {
+		const int batchSize = int(data.cols()) / batchParams.batchCount;
+		allData = data;
+		allLabels = labels;
+		trainData = MatrixXf(data.rows(), batchSize);
+		trainLabels = MatrixXf(labels.rows(), batchSize);
+		shuffledIndices.resize(data.cols());
+		iota(shuffledIndices.begin(), shuffledIndices.end(), 0);
+		LoadBatch(0);
+	}
+	else {
+		trainData = data;
+		trainLabels = labels;
+	}
 	coeff = float(1.f / float(trainLabels.cols()));
 	if (network->GetSumOfWeights() == 0.f) {
 		network->RandomInit(weightScale);
 	}
 	trainParams.learningMod = 1.f / float(network->GetNeuronCount());
 	trainParams.learningRate = learnRate;
-	trainParams.regTerm = regTerm;
+	trainParams.regTerm = regTerm / float(batchParams.batchCount);
 	for (int i = 1; i < int(network->GetParams().layerSizes.size()); ++i) {
 		AddLayer(network->GetParams().layerSizes[i], network->GetParams().layerSizes[i - 1]);
 	}
@@ -184,9 +202,51 @@ void NetTrainer::BuildDropoutMask() {
 		}
 	}
 }
+void NetTrainer::LoadBatch(const int batchIndex) {
+	const int batchSize = int(trainData.cols());
+	const int total = int(allData.cols());
+	const int start = batchIndex * batchSize;
+	for (int j = 0; j < batchSize; ++j) {
+		int column = start + j;
+		if (batchParams.shuffleType == SlideWindow) {
+			column = (column + slideOffset) % total;
+		}
+		else if (batchParams.shuffleType == ShuffleRandom) {
+			column = shuffledIndices[column];
+		}
+		trainData.col(j) = allData.col(column);
+		trainLabels.col(j) = allLabels.col(column);
+	}
+}
+
+void NetTrainer::AdvanceBatchWindow() {
+	if (batchParams.shuffleType == SlideWindow) {
+		const int randStep = 1 + rand() % int(trainData.cols());  // NOLINT(concurrency-mt-unsafe)
+		slideOffset = (slideOffset + randStep) % int(allData.cols());
+	}
+	else if (batchParams.shuffleType == ShuffleRandom) {
+		static thread_local mt19937 generator{ random_device{}() };
+		shuffle(shuffledIndices.begin(), shuffledIndices.end(), generator);
+	}
+}
+
 void NetTrainer::TrainSingleEpoch() {
 	//BuildDropoutMask();
-	cache.cost = CalcCost(ForwardTrain(), trainLabels);
+	if (batchParams.batchCount > 1) {
+		// With batching the epoch cost is the average of the per-batch costs.
+		float costSum = 0.f;
+		for (int i = 0; i < batchParams.batchCount; ++i) {
+			LoadBatch(i);
+			costSum += CalcCost(ForwardTrain(), trainLabels);
+			BackwardPropagation();
+			UpdateParametersAdam();
+		}
+		cache.cost = costSum / float(batchParams.batchCount);
+		AdvanceBatchWindow();
+		return;
+	}
+	const MatrixXf TrainOutput = ForwardTrain();
 	BackwardPropagation();
 	UpdateParametersAdam();
+	cache.cost = CalcCost(TrainOutput, trainLabels);
 }

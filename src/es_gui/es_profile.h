@@ -1,4 +1,7 @@
 #pragma once
+#include "types.h"
+#include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -16,12 +19,23 @@
 //   learning_rate=2
 //   reg_term=20
 //   weight_scale=1
+//   batch_count=1             mini-batches per epoch (1 = full batch)
+//   shuffle=none              none | random | slide, how batches are drawn each epoch
 struct EsProfile {
 	std::string network, trainData, trainLabels, testData, testLabels;
 	float learningRate = 2.f;
 	float regTerm = 20.f;
 	float weightScale = 1.f;
+	int batchCount = 1;
+	NetBatchShuffleType shuffle = None;
 
+	static const char *ShuffleName(const NetBatchShuffleType type) {
+		switch (type) {
+		case ShuffleRandom: return "random";
+		case SlideWindow: return "slide";
+		default: return "none";
+		}
+	}
 	static std::string Trim(const std::string &s) {
 		const size_t a = s.find_first_not_of(" \t\r\n");
 		if (a == std::string::npos) return "";
@@ -38,7 +52,9 @@ struct EsProfile {
 		  << "test_labels=" << testLabels << "\n"
 		  << "learning_rate=" << learningRate << "\n"
 		  << "reg_term=" << regTerm << "\n"
-		  << "weight_scale=" << weightScale << "\n";
+		  << "weight_scale=" << weightScale << "\n"
+		  << "batch_count=" << batchCount << "\n"
+		  << "shuffle=" << ShuffleName(shuffle) << "\n";
 		return f.good();
 	}
 
@@ -55,9 +71,11 @@ struct EsProfile {
 			else if (k == "train_labels") trainLabels = v;
 			else if (k == "test_data") testData = v;
 			else if (k == "test_labels") testLabels = v;
-			else if (k == "learning_rate") learningRate = (float)atof(v.c_str());
-			else if (k == "reg_term") regTerm = (float)atof(v.c_str());
-			else if (k == "weight_scale") weightScale = (float)atof(v.c_str());
+			else if (k == "learning_rate") learningRate = static_cast<float>(atof(v.c_str()));
+			else if (k == "reg_term") regTerm = static_cast<float>(atof(v.c_str()));
+			else if (k == "weight_scale") weightScale = static_cast<float>(atof(v.c_str()));
+			else if (k == "batch_count") batchCount = (std::max)(1, atoi(v.c_str()));
+			else if (k == "shuffle") shuffle = v == "random" ? ShuffleRandom : v == "slide" ? SlideWindow : None;
 		}
 		return true;
 	}

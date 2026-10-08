@@ -237,6 +237,15 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 			ImGui::InputFloat("Reg term", &profile.regTerm);
 			ImGui::InputFloat("Weight scale", &profile.weightScale);
 			ImGui::BeginDisabled(running);
+			ImGui::InputInt("Batch count", &profile.batchCount);
+			profile.batchCount = (std::max)(1, profile.batchCount);
+			static const char *shuffleNames[] = { "None (sequential)", "Random shuffle", "Sliding window" };
+			int shuffleIndex = (int)profile.shuffle;
+			if (ImGui::Combo("Batch order", &shuffleIndex, shuffleNames, IM_ARRAYSIZE(shuffleNames))) {
+				profile.shuffle = static_cast<NetBatchShuffleType>(shuffleIndex);
+			}
+			ImGui::EndDisabled();
+			ImGui::BeginDisabled(running);
 			if (ImGui::RadioButton("CPU", backend == TrainerBackend::Cpu)) backend = TrainerBackend::Cpu;
 			ImGui::SameLine();
 			ImGui::BeginDisabled(!gpuAvailable);
@@ -252,9 +261,19 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 					Eigen::MatrixXf X = LoadMatrix(trainX.s), Y = LoadMatrix(trainY.s);
 					Eigen::MatrixXf tX, tY;
 					/*if (testX.s[0] && testY.s[0]) { tX = LoadMatrix(testX.s); tY = LoadMatrix(testY.s); }*/
-					status = trainer.Start(&net, X, Y, tX, tY, 					profile.weightScale, profile.learningRate, profile.regTerm, backend)
-											? (backend == TrainerBackend::Gpu ? "Training (GPU)" : "Training (CPU)")
-											: "Cannot start: need a network and matching train data/labels";
+					NetBatchParams batch;
+					batch.batchCount = profile.batchCount;
+					batch.shuffleType = profile.shuffle;
+					const int samples = (int)X.cols();
+					const bool started = trainer.Start(&net, X, Y, tX, tY, profile.weightScale, profile.learningRate,
+						profile.regTerm, backend, batch);
+					if (started) {
+						status = std::string(backend == TrainerBackend::Gpu ? "Training (GPU)" : "Training (CPU)") +
+							", " + std::to_string(batch.batchCount) + " batch(es) of " +
+							std::to_string(samples / batch.batchCount) + " samples";
+					} else {
+						status = "Cannot start: need a network, matching train data/labels and 1 <= batch count <= samples";
+					}
 				}
 			} else if (trainer.IsStopping()) {
 				ImGui::BeginDisabled();

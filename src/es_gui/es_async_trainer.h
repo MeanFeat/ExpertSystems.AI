@@ -28,11 +28,13 @@ public:
 	// Takes ownership of nothing; `net` must outlive the trainer.
 	bool Start(Net *net, const Eigen::MatrixXf &trainX, const Eigen::MatrixXf &trainY,
 	           const Eigen::MatrixXf &testX, const Eigen::MatrixXf &testY,
-	           float weightScale, float learnRate, float regTerm, TrainerBackend trainerBackend = TrainerBackend::Cpu) {
+	           float weightScale, float learnRate, float regTerm, const TrainerBackend trainerBackend = TrainerBackend::Cpu,
+	           const NetBatchParams &batchParameters = NetBatchParams()) {
 		Stop();
 		JoinWorker();
 		if (!net || net->GetNodeCount() == 0 || trainX.size() == 0 || trainY.size() == 0) return false;
 		if (trainX.cols() != trainY.cols()) return false;
+		if (batchParameters.batchCount < 1 || batchParameters.batchCount > trainX.cols()) return false;
 		if (trainerBackend == TrainerBackend::Gpu && !IsGpuAvailable()) return false;
 		{
 			std::lock_guard<std::mutex> l(mutex);
@@ -42,9 +44,10 @@ public:
 			backend = trainerBackend;
 			gpuTrainer.reset();
 			if (backend == TrainerBackend::Gpu) {
-				gpuTrainer = std::make_unique<d_NetTrainer>(net, trainX, trainY, weightScale, learnRate, regTerm);
+				gpuTrainer = std::make_unique<d_NetTrainer>(net, trainX, trainY, weightScale, learnRate, regTerm,
+					d_NetBatchParams(batchParameters.batchCount, batchParameters.shuffleType));
 			} else {
-				cpuTrainer = NetTrainer(net, trainX, trainY, weightScale, learnRate, regTerm);
+				cpuTrainer = NetTrainer(net, trainX, trainY, weightScale, learnRate, regTerm, batchParameters);
 			}
 		}
 		{
