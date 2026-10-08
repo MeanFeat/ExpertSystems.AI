@@ -114,12 +114,27 @@ internal LRESULT CALLBACK Win32MainWindowCallback(HWND Window, UINT Message, WPA
 			RecordSample(deltaCapture, 0.f);
 			shouldSaveChanges = true;
 			break;
+		case 'N':
+		{
+			if (trainer) {
+				trainer->RefreshHostNetwork();
+			}
+			const std::string filePath = Win32SaveFileDialog(Window, "Save network profile",
+				"Network profiles (*.json)\0*.json\0All files (*.*)\0*.*\0\0", "Gesture-Weights.json");
+			if (!filePath.empty()) {
+				neural.SaveNetwork(filePath);
+			}
+		} break;
 		case 'S':
 		{
 			MatrixXf saveSamples = MatrixXf(MAXCAPTURECOUNT * 2, samples.size() - 1);
 			CopyNestedVec(saveSamples, &samples, MAXCAPTURECOUNT);
 			if (saveSamples.size() > MAXCAPTURECOUNT) {
-				writeToCSVfile("Ideal8.csv", saveSamples.transpose());
+				const std::string filePath = Win32SaveFileDialog(Window, "Save samples",
+					"CSV files (*.csv)\0*.csv\0All files (*.*)\0*.*\0\0", "Ideal8.csv");
+				if (!filePath.empty()) {
+					writeToCSVfile(filePath, saveSamples.transpose());
+				}
 			}
 		}
 		break;
@@ -276,8 +291,14 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 	MatrixXf readDeltas;//= BuildMatFromFile("GroupedDeltas.csv").transpose();
 	MatrixXf readLabels;//=BuildMatFromFile("GroupedLabels.csv").transpose();
 	MatrixXf readIdeal8 = MatrixXf(50, 1);
-	read_binary("GroupedDeltas_64.dat", readDeltas);
-	read_binary("GroupedLabels_64.dat", readLabels);
+	std::string dataPath = Win32OpenFileDialog(nullptr, "Select data file",
+		"Binary matrix files (*.dat)\0*.dat\0All files (*.*)\0*.*\0\0", "GroupedDeltas_64.dat");
+	std::string labelsPath = Win32OpenFileDialog(nullptr, "Select labels file",
+		"Binary matrix files (*.dat)\0*.dat\0All files (*.*)\0*.*\0\0", "GroupedLabels_64.dat");
+	const std::string profilePath = Win32OpenFileDialog(nullptr, "Select network profile",
+		"Network profiles (*.json)\0*.json\0All files (*.*)\0*.*\0\0", "Gesture-Weights.json");
+	read_binary((dataPath.empty() ? "GroupedDeltas_64.dat" : dataPath.c_str()), readDeltas);
+	read_binary((labelsPath.empty() ? "GroupedLabels_64.dat" : labelsPath.c_str()), readLabels);
 	readIdeal8 << 355, 263, 397, 247, 437, 252, 471, 274, 490, 310, 492, 350, 470, 386, 440, 415, 407, 439, 374, 463, 347, 495, 342, 535, 349, 575, 374, 607, 414, 613, 454, 602, 479, 570, 486, 529, 480, 489, 451, 461, 414, 443, 382, 419, 353, 390, 340, 350, 332, 310;
 	vector<Vector2f> ideal8;
 	int i = 0;
@@ -299,11 +320,15 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 		HDC deviceContext = GetDC(window);
 		vector<Vector2f> mouseTrail;
 		int sampleIndex = 0;
-		//neural = Net("Gesture-Weights.json");
-		neural = Net((int)readDeltas.rows(), { 100, 50 }, (int)readLabels.rows(), {
-			Tanh,
-			Tanh,
-			Sigmoid });
+		if (!profilePath.empty()) {
+			neural = Net(profilePath);
+		}
+		else {
+			neural = Net((int)readDeltas.rows(), { 100, 50 }, (int)readLabels.rows(), {
+				Tanh,
+				Tanh,
+				Sigmoid });
+		}
 		d_NetTrainer OrigTrainer(&neural, readDeltas, readLabels, 1.f, 1.25f, 0.0001f, d_NetBatchParams(10, SlideWindow));
 		trainer = &OrigTrainer;
 		vector<float> history;
@@ -387,6 +412,13 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 
 		if ((!isTraining && isRecordingData) || shouldSaveChanges) {
 			if (!isVerifying && samples.size() > MAXCAPTURECOUNT) {
+				auto saveCsv = [window](const char *title, const char *defaultPath, const MatrixXf &matrix) {
+					const std::string filePath = Win32SaveFileDialog(window, title,
+						"CSV files (*.csv)\0*.csv\0All files (*.*)\0*.*\0\0", defaultPath);
+					if (!filePath.empty()) {
+						writeToCSVfile(filePath, matrix);
+					}
+				};
 				MatrixXf saveSamples = MatrixXf(MAXCAPTURECOUNT * 2, samples.size() - 1);
 				MatrixXf saveDeltas = MatrixXf(MAXCAPTURECOUNT * 2, deltas.size() - 1);
 				MatrixXf saveLabels = MatrixXf(1, samples.size() - 1);
@@ -403,18 +435,22 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 					outSamples << readDeltas, saveDeltas;
 					MatrixXf outLabels = MatrixXf(readLabels.rows(), readLabels.cols() + saveLabels.cols());
 					outLabels << readLabels, saveLabels;
-					writeToCSVfile("GestureSamplesTrain.csv", outSamples.transpose());
-					writeToCSVfile("GestureDeltasTrain.csv", outDeltas.transpose());
-					writeToCSVfile("GestureLabelsTrain.csv", outLabels.transpose());
+					saveCsv("Save samples", "GestureSamplesTrain.csv", outSamples.transpose());
+					saveCsv("Save data", "GestureDeltasTrain.csv", outDeltas.transpose());
+					saveCsv("Save labels", "GestureLabelsTrain.csv", outLabels.transpose());
 				}
 				else {
-					writeToCSVfile("GestureSamplesTrain.csv", saveSamples.transpose());
-					writeToCSVfile("GestureDeltasTrain.csv", saveDeltas.transpose());
-					writeToCSVfile("GestureLabelsTrain.csv", saveLabels.transpose());
+					saveCsv("Save samples", "GestureSamplesTrain.csv", saveSamples.transpose());
+					saveCsv("Save data", "GestureDeltasTrain.csv", saveDeltas.transpose());
+					saveCsv("Save labels", "GestureLabelsTrain.csv", saveLabels.transpose());
 				}
 			}
 			else {
-				writeToCSVfile("GestureLabelsTrain.csv", readLabels.transpose());
+				const std::string filePath = Win32SaveFileDialog(window, "Save labels",
+					"CSV files (*.csv)\0*.csv\0All files (*.*)\0*.*\0\0", "GestureLabelsTrain.csv");
+				if (!filePath.empty()) {
+					writeToCSVfile(filePath, readLabels.transpose());
+				}
 			}
 		}
 		DeleteDC(deviceContext);

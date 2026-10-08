@@ -55,6 +55,15 @@ internal LRESULT CALLBACK Win32MainWindowCallback(HWND Window, UINT Message, WPA
 		case 'P':
 			profile = !profile;
 			break;
+		case 'N':
+		{
+			const std::string filePath = Win32SaveFileDialog(Window, "Save network profile",
+				"Network profiles (*.json)\0*.json\0All files (*.*)\0*.*\0\0", "SpiralNetwork.json");
+			if (!filePath.empty()) {
+				d_trainer->RefreshHostNetwork();
+				d_neural.SaveNetwork(filePath);
+			}
+		} break;
 		default:
 			break;
 		}
@@ -176,8 +185,14 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 			   //	read_binary("Spiral.dat", X);
 			   //	read_binary("SpiralLabels.dat", Y);
 			   //#endif
-	read_binary("Spiral_64_float.dat", X);
-	read_binary("SpiralLabels_64_float.dat", Y);
+	std::string dataPath = Win32OpenFileDialog(nullptr, "Select data file",
+		"Binary matrix files (*.dat)\0*.dat\0All files (*.*)\0*.*\0\0", "Spiral_64_float.dat");
+	std::string labelsPath = Win32OpenFileDialog(nullptr, "Select labels file",
+		"Binary matrix files (*.dat)\0*.dat\0All files (*.*)\0*.*\0\0", "SpiralLabels_64_float.dat");
+	const std::string profilePath = Win32OpenFileDialog(nullptr, "Select network profile",
+		"Network profiles (*.json)\0*.json\0All files (*.*)\0*.*\0\0", "SpiralNetwork.json");
+	read_binary((dataPath.empty() ? "Spiral_64_float.dat" : dataPath.c_str()), X);
+	read_binary((labelsPath.empty() ? "SpiralLabels_64_float.dat" : labelsPath.c_str()), Y);
 	X = BuildPolynomials(X);
 	//X.conservativeResize(int(X.rows()), int(X.cols()*0.25f));
 	//Y.conservativeResize(int(Y.rows()), int(Y.cols()*0.25f));
@@ -188,10 +203,15 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 		const HWND window = CreateWindowExA(0, winClass.lpszClassName, "NNet||",
 		                                    WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MAXIMIZEBOX | WS_THICKFRAME | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,
 		                                    WINWIDTH * 2, WINHEIGHT * 2, 0, 0, Instance, 0);
-		neural = Net((int)X.rows(), { 8, 8 }, (int)Y.rows(), {
-			Tanh,
-			Tanh,
-			Tanh });
+		if (!profilePath.empty()) {
+			neural = Net(profilePath);
+		}
+		else {
+			neural = Net((int)X.rows(), { 8, 8 }, (int)Y.rows(), {
+				Tanh,
+				Tanh,
+				Tanh });
+		}
 		//h_trainer = NetTrainer(&neural, X, Y, 1.f, 2.f, 20.f);
 		d_neural = Net(neural);
 		d_NetTrainer d_net_trainer(&d_neural, X, Y, 1.f, 2.f, 20.f, d_NetBatchParams(2,SlideWindow));

@@ -6,6 +6,9 @@
 #include "stdNet.h"
 #include "stdNetTrainer.h"
 #include "d_NetTrainer.h"
+#include <commdlg.h>
+#include <cstring>
+#include <string>
 
 #define internal static
 #define local_persist static
@@ -27,6 +30,36 @@ typedef float real64;
 
 #define Assert(Expression) if(!(Expression)) {*(int *)0 = 0;}
 #define clamp(x,lo,hi) min( hi, max(lo,x) )
+
+internal std::string Win32SelectFile(HWND owner, const char *title, const char *filter, const char *initialPath, bool save) {
+	char filePath[MAX_PATH] = {};
+	if (initialPath) {
+		strncpy_s(filePath, initialPath, _TRUNCATE);
+	}
+	OPENFILENAMEA dialog = {};
+	dialog.lStructSize = sizeof(dialog);
+	dialog.hwndOwner = owner;
+	dialog.lpstrFilter = filter;
+	dialog.lpstrFile = filePath;
+	dialog.nMaxFile = sizeof(filePath);
+	dialog.lpstrTitle = title;
+	const char *extension = initialPath ? std::strrchr(initialPath, '.') : nullptr;
+	dialog.lpstrDefExt = extension ? extension + 1 : nullptr;
+	dialog.Flags = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST |
+		(save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
+	if (save ? GetSaveFileNameA(&dialog) : GetOpenFileNameA(&dialog)) {
+		return filePath;
+	}
+	return std::string();
+}
+
+internal std::string Win32OpenFileDialog(HWND owner, const char *title, const char *filter, const char *initialPath = nullptr) {
+	return Win32SelectFile(owner, title, filter, initialPath, false);
+}
+
+internal std::string Win32SaveFileDialog(HWND owner, const char *title, const char *filter, const char *initialPath = nullptr) {
+	return Win32SelectFile(owner, title, filter, initialPath, true);
+}
 
 void InitializeWindow(WNDCLASSA *winclass, HINSTANCE instance, WNDPROC windowCallback, Buffer *backBuffer, int width, int height, LPSTR className) {
 	backBuffer->bitmapInfo.bmiHeader.biSize = sizeof(backBuffer->bitmapInfo.bmiHeader);
