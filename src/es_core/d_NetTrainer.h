@@ -65,11 +65,6 @@ struct d_NetCache  : public d_NetBaseStructure {
 	float *d_weightSum;
 	float *d_epochCost;
 };
-enum d_NetBatchShuffleType {
-	None,
-	ShuffleRandom,
-	SlideWindow
-};
 struct d_NetBatchTrainingData {
 	void clear()
 	{
@@ -83,7 +78,7 @@ struct d_NetBatchTrainingData {
 };
 struct d_NetBatchParams {
 	d_NetBatchParams() : slideOffset(0), batchCount(1), shuffleType(None) {};
-	d_NetBatchParams(const int inBatchCount, const d_NetBatchShuffleType inShuffleType = None) : slideOffset(0), shuffleType(inShuffleType)	{
+	d_NetBatchParams(const int inBatchCount, const NetBatchShuffleType inShuffleType = None) : slideOffset(0), shuffleType(inShuffleType)	{
 		batchCount = max(1, inBatchCount);
 	}
 	~d_NetBatchParams() {
@@ -102,13 +97,13 @@ struct d_NetBatchParams {
 	void CreateBatchData(const MatrixXf &data, const MatrixXf &labels);
 	void ShuffleData();
 	void LoadBatchData(const int batchIndex, d_Matrix& Input, d_Matrix& Output, int *deviceIndices);
-	d_NetBatchShuffleType GetShuffleType() const {
+	NetBatchShuffleType GetShuffleType() const {
 		return shuffleType;
 	}
 	int slideOffset;
 private:
 	int batchCount;
-	d_NetBatchShuffleType shuffleType; 
+	NetBatchShuffleType shuffleType; 
 	d_NetBatchTrainingData batchDataPool;
 	std::vector<int> shuffledBatchIndices;
 };

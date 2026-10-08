@@ -15,10 +15,16 @@ struct NetCache {
 	float cost;
 };
 
+struct NetBatchParams {
+	int batchCount = 1;
+	NetBatchShuffleType shuffleType = None;
+};
+
 class NetTrainer {
 public:
 	NetTrainer();
-	NetTrainer(Net *net, const Eigen::MatrixXf &data, const Eigen::MatrixXf &labels, float weightScale, float learnRate, float regTerm);
+	NetTrainer(Net *net, const Eigen::MatrixXf &data, const Eigen::MatrixXf &labels, float weightScale, float learnRate, float regTerm,
+	           const NetBatchParams &batchParameters = NetBatchParams());
 	~NetTrainer();
 
 	Eigen::MatrixXf BackActivation(const Eigen::MatrixXf &dZ, int layerIndex);
@@ -43,9 +49,17 @@ public:
 	void TrainSingleEpoch();
 
 private:
+	void LoadBatch(int batchIndex);
+	void AdvanceBatchWindow();
 	float coeff;
+	// trainData/trainLabels hold the active batch; allData/allLabels hold the full set when batching.
 	Eigen::MatrixXf trainData;
 	Eigen::MatrixXf trainLabels;
+	Eigen::MatrixXf allData;
+	Eigen::MatrixXf allLabels;
+	NetBatchParams batchParams;
+	std::vector<int> shuffledIndices;
+	int slideOffset = 0;
 	NetCache cache;
 	NetParameters dropParams;
 	NetTrainParameters trainParams;

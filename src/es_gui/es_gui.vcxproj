@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{A8148D42-1C8B-4D54-8B74-740DB04EB5A2}</ProjectGuid>
+    <RootNamespace>es_gui</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ImGuiDir Condition="'$(ImGuiDir)' == ''">$(MSBuildThisFileDirectory)..\..\external\imgui\</ImGuiDir>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup>
+    <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)intermediate\$(Configuration)\es_gui\</IntDir>
+    <IncludePath>$(ImGuiDir);$(ImGuiDir)backends;..\..\..\eigen;..\es_core;..\es_cuda;..\common;$(CUDA_PATH)\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(CUDA_PATH)\lib\x64;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LocalDebuggerWorkingDirectory>$(SolutionDir)</LocalDebuggerWorkingDirectory>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LocalDebuggerWorkingDirectory>$(SolutionDir)</LocalDebuggerWorkingDirectory>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;cublas.lib;cudart.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="es_gui_app.cpp" />
+    <ClCompile Include="$(ImGuiDir)imgui.cpp" />
+    <ClCompile Include="$(ImGuiDir)imgui_draw.cpp" />
+    <ClCompile Include="$(ImGuiDir)imgui_tables.cpp" />
+    <ClCompile Include="$(ImGuiDir)imgui_widgets.cpp" />
+    <ClCompile Include="$(ImGuiDir)backends\imgui_impl_win32.cpp" />
+    <ClCompile Include="$(ImGuiDir)backends\imgui_impl_dx11.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="es_async_trainer.h" />
+    <ClInclude Include="es_profile.h" />
+    <ClInclude Include="$(ImGuiDir)imgui.h" />
+    <ClInclude Include="$(ImGuiDir)backends\imgui_impl_win32.h" />
+    <ClInclude Include="$(ImGuiDir)backends\imgui_impl_dx11.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\es_core\es_core.vcxproj">
+      <Project>{389D51B1-0826-48BA-93CC-BDB12EEA1357}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Target Name="ValidateImGuiDependency" BeforeTargets="PrepareForBuild" Condition="!Exists('$(ImGuiDir)imgui.h')">
+    <Error Text="Dear ImGui was not found at '$(ImGuiDir)'. Clone https://github.com/ocornut/imgui there or set the ImGuiDir MSBuild property." />
+  </Target>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

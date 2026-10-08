@@ -264,9 +264,9 @@ testResult testForwardTrain(Net &nn, const int dataCount) {
 testResult testTrainEpoch(Net &nn, const int dataCount) {
 	const MatrixXf data = MatrixXf::Random(nn.GetInputSize(), dataCount);
 	const MatrixXf labels = MatrixXf::Random(nn.GetOutputSize(), dataCount);
-	const d_NetBatchShuffleType shuffleTypes[] = { None, ShuffleRandom, SlideWindow };
+	constexpr NetBatchShuffleType shuffleTypes[] = { None, ShuffleRandom, SlideWindow };
 	bool passed = true;
-	for (const d_NetBatchShuffleType shuffleType : shuffleTypes) {
+	for (const NetBatchShuffleType shuffleType : shuffleTypes) {
 		nn.RandomInit(0.15f);
 		const MatrixXf initialWeights = nn.GetParams().W[0];
 		d_NetTrainer trainer(&nn, data, labels, 1.f, 0.25f, 0.f, d_NetBatchParams(2, shuffleType));
