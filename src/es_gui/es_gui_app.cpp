@@ -7,6 +7,7 @@
 #include <d3d11.h>
 /*#include <commdlg.h>
 #pragma comment(lib, "comdlg32.lib")*/
+#include <imgui_internal.h>
 #include <string>
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
@@ -369,10 +370,33 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 				status = "Stop requested; finishing current epoch";
 			}
 			const std::vector<float> tr = trainer.TrainHistory(), te = trainer.TestHistory();
-			if (!tr.empty()) ImGui::PlotLines("Train cost", tr.data(), static_cast<int>(tr.size()), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 200));
-			if (!te.empty()) ImGui::PlotLines("Test cost", te.data(), static_cast<int>(te.size()), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 200));
+			
+			ImVec2 p0 = ImGui::GetCursorScreenPos();
+			ImVec2 size(ImGui::GetContentRegionAvail().x, 400.0f);
+			ImGui::Dummy(size);
+			ImDrawList* dl = ImGui::GetWindowDrawList();
+
+			// Find the shared range so both series use the same scale
+			float maxV = 0.0f;
+			for (float v : tr) maxV = v > maxV ? v : maxV;
+			for (float v : te) maxV = v > maxV ? v : maxV;
+			if (maxV <= 0.0f) maxV = 1.0f;
+
+			auto drawSeries = [&](const std::vector<float>& s, const ImU32 col) {
+				if (s.size() < 2) return;
+				for (size_t i = 1; i < s.size(); ++i) {
+					ImVec2 a(p0.x + size.x * (i - 1) / (s.size() - 1), p0.y + size.y * (1.0f - s[i - 1] / maxV));
+					ImVec2 b(p0.x + size.x * i / (s.size() - 1),       p0.y + size.y * (1.0f - s[i] / maxV));
+					dl->AddLine(a, b, col, 1.0f);
+				}
+			};
+			
+			// draw test first so train is on top
+			drawSeries(te, IM_COL32(0, 255, 255, 100));
+			drawSeries(tr, IM_COL32(100, 255, 100, 255));
+			
 			if (!tr.empty()) {
-				ImGui::Text("Epochs: %d  average: %.2f epochs/sec  train: %.5f  test: %.5f",
+				ImGui::Text("Epochs: %d  average: %.2f epochs/sec  train: %.10f  test: %.10f",
 					static_cast<int>(tr.size()), trainer.EpochsPerSecond(), tr.back(), te.empty() ? 0.f : te.back());
 			}
 		}

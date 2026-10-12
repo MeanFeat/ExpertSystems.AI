@@ -20,48 +20,45 @@ Net::Net(const int inputSize, const std::vector<int> &hiddenSizes, const int out
 }
 
 Net::Net(const string &fName) {
-	LoadNetwork(fName);
+	LoadNetworkJson(fName);
 }
 
 Net::~Net() {}
 NetParameters &Net::GetParams() {
 	return params;
 }
-void Net::SetParams(vector<MatrixXf> W, vector<MatrixXf> b) {
+const NetParameters &Net::GetParams() const {
+	return params;
+}
+void Net::SetParams(const vector<MatrixXf>& W, const vector<MatrixXf>& b) {
 	params.W = W;
 	params.b = b;
 }
-void Net::AddLayer(int a, int b) {
+void Net::AddLayer(const int a, const int b) {
 	params.W.push_back(MatrixXf::Zero(a, b));
 	params.b.push_back(MatrixXf::Zero(a, 1));
 }
-MatrixXf Net::Activate(const MatrixXf &In, Activation act) {
+MatrixXf Net::Activate(const MatrixXf &In, const Activation act) {
 	switch (act) {
 	case Linear:
 		return In;
-		break;
 	case Sigmoid:
 		return CalcSigmoid(In);
-		break;
 	case Tanh:
 		return CalcTanh(In);
-		break;
 	case ReLU:
 		return CalcReLU(In);
-		break;
 	case LReLU:
 		return CalcLReLU(In);
-		break;
 	case Sine:
 		return CalcSine(In);
-		break;
 	default:
 		return In;
-		break;
 	}
 }
 
-MatrixXf Net::ForwardPropagation(const MatrixXf &X) {
+MatrixXf Net::ForwardPropagation(const MatrixXf &X) const
+{
 	MatrixXf lastOutput = X;
 	for (int i = 0; i < (int)params.layerSizes.size() - 1; ++i) {
 		MatrixXf weighed = params.W[i] * lastOutput;
@@ -71,11 +68,11 @@ MatrixXf Net::ForwardPropagation(const MatrixXf &X) {
 	return lastOutput;
 }
 
-int Net::GetDepth() {
-	return (int)GetParams().layerSizes.size() - 1;
+int Net::GetDepth() const {
+	return static_cast<int>(GetParams().layerSizes.size()) - 1;
 }
 
-void Net::RandomInit(float scale) {
+void Net::RandomInit(const float scale) {
 	for (int i = 0; i < GetDepth(); ++i) {
 		MatrixXf *w = &GetParams().W[i];
 		*w = MatrixXf::Random(w->rows(), w->cols()) * scale;
@@ -98,7 +95,7 @@ int Net::GetNeuronCount() {
 	return result;
 }
 
-Activation ReadActivation(string str) {
+static Activation ReadActivation(const string& str) {
 	if (strFind(str, "sigmoid")) {
 		return Activation::Sigmoid;
 	}
@@ -115,19 +112,20 @@ Activation ReadActivation(string str) {
 		return Activation::Linear;
 	}
 }
-string WriteActivation(Activation act) {
+
+static string WriteActivation(const Activation act) {
 	switch (act) {
-	case Sigmoid:	return "sigmoid";		break;
-	case Tanh:		return "tanh";			break;
-	case ReLU:		return "relu";			break;
-	case LReLU:		return "leaky_relu";	break;
-	case Sine:		return "sine";			break;
+	case Sigmoid:	return "sigmoid";
+	case Tanh:		return "tanh";
+	case ReLU:		return "relu";
+	case LReLU:		return "leaky_relu";
+	case Sine:		return "sine";
 	case Linear:	//fall through
-	default: return "linear"; break;
+	default: return "linear";
 	}
 }
 
-inline void OutputMatrix(std::ofstream &file, int tb, std::string shape, std::string vals, const Eigen::MatrixXf *m, bool transposed = false) {
+static inline void OutputMatrix(std::ofstream &file, int tb, const std::string& shape, const std::string& vals, const Eigen::MatrixXf *m, const bool transposed = false) {
 	OUT_LINE(file, tb, "\"" << shape << "\" :" << "[");
 	if (transposed) {
 		OUT_LINE(file, ++tb, m->cols() << ",");
@@ -153,10 +151,12 @@ inline void OutputMatrix(std::ofstream &file, int tb, std::string shape, std::st
 	}
 }
 
-void Net::SaveNetwork(const string fName) {
+void Net::SaveNetworkJson(const string& fName) {
+	if (fName.empty())
+		return;
 	ofstream file(fName);
 	int tb = 0;
-	NetParameters *p = &params;
+	const NetParameters *p = &params;
 	for (int lyrIdx = 0; lyrIdx < GetDepth(); lyrIdx++) {
 		OUT_LINE(file, tb, "{");
 		OUT_LINE(file, ++tb, "\"layer\" :" << lyrIdx << ",");
@@ -169,17 +169,47 @@ void Net::SaveNetwork(const string fName) {
 	file.close();
 }
 
-enum class NetParseState {
-	layer,
-	activation,
-	weightShape,
-	biasShape,
-	weightValues,
-	biasValues,
-	none
-};
+void Net::SaveNetwork(const string& fName) {
+	if (fName.empty())
+		return;
+	ofstream file(fName, ios::binary);
+	int depth = GetDepth();
+	file.write((char*)&depth, sizeof(int));
+	for (int lyrIdx = 0; lyrIdx < depth; lyrIdx++) {
+		int rows = static_cast<int>(params.W[lyrIdx].rows());
+		int cols = static_cast<int>(params.W[lyrIdx].cols());
+		file.write((char*)&rows, sizeof(int));
+		file.write((char*)&cols, sizeof(int));
+		file.write((char*)params.W[lyrIdx].data(), rows * cols * sizeof(float));
 
-void Net::LoadNetwork(const string fName) {
+		rows = static_cast<int>(params.b[lyrIdx].rows());
+		cols = static_cast<int>(params.b[lyrIdx].cols());
+		file.write((char*)&rows, sizeof(int));
+		file.write((char*)&cols, sizeof(int));
+		file.write((char*)params.b[lyrIdx].data(), rows * cols * sizeof(float));
+
+		int act = static_cast<int>(params.layerActivations[lyrIdx]);
+		file.write((char*)&act, sizeof(int));
+	}
+	file.close();
+}
+
+namespace
+{
+	enum class NetParseState {
+		layer,
+		activation,
+		weightShape,
+		biasShape,
+		weightValues,
+		biasValues,
+		none
+	};
+}
+
+void Net::LoadNetworkJson(const string& fName) {
+	if (fName.empty())
+		return;
 	std::string line;
 	ifstream file(fName);
 	vector<int> shapeDims;
@@ -280,10 +310,44 @@ void Net::LoadNetwork(const string fName) {
 	file.close();
 }
 
-int Net::GetInputSize() {
+void Net::LoadNetwork(const string& fName) {
+	if (fName.empty())
+		return;
+	ifstream file(fName, ios::binary);
+	int depth = 0;
+	file.read((char*)&depth, sizeof(int));
+	for (int lyrIdx = 0; lyrIdx < depth; lyrIdx++) {
+		int rows = 0, cols = 0;
+		file.read((char*)&rows, sizeof(int));
+		file.read((char*)&cols, sizeof(int));
+		MatrixXf w(rows, cols);
+		file.read((char*)w.data(), rows * cols * sizeof(float));
+		params.W.push_back(w);
+
+		file.read((char*)&rows, sizeof(int));
+		file.read((char*)&cols, sizeof(int));
+		MatrixXf b(rows, cols);
+		file.read((char*)b.data(), rows * cols * sizeof(float));
+		params.b.push_back(b);
+
+		int act = 0;
+		file.read((char*)&act, sizeof(int));
+		params.layerActivations.push_back(static_cast<Activation>(act));
+
+		if (lyrIdx == 0) {
+			params.layerSizes.push_back(static_cast<int>(w.rows()));
+		}
+		params.layerSizes.push_back(static_cast<int>(w.cols()));
+	}
+	file.close();
+}
+
+int Net::GetInputSize() const
+{
 	return params.layerSizes[0];
 }
-int Net::GetOutputSize() {
+int Net::GetOutputSize() const
+{
 	return params.layerSizes.back();
 }
 
@@ -297,7 +361,7 @@ int Net::GetNodeCount() {
 
 string Net::ToString() {
 	string str;
-	NetParameters *p = &params;
+	const NetParameters *p = &params;
 	for (int i = 0; i < GetDepth(); i++) {
 		str += "[" + to_string(p->layerSizes[i]) + "]";
 	}
