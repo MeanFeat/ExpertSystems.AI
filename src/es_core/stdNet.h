@@ -1,6 +1,6 @@
 #pragma once
 #include "types.h"
-
+#include <Eigen/Dense>
 inline Eigen::MatrixXf CalcSigmoid(const Eigen::MatrixXf &in) {
 	//return in.unaryExpr([](float elem) { return 1.f / (1.f + exp(-elem)); });
 	//return ((-1.f*in).array().exp() + 1).cwiseInverse();
