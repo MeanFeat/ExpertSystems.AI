@@ -1,11 +1,10 @@
 #pragma once
 #include "es_core_pch.h"
-
 typedef Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic > MatrixDynamic;
 namespace Eigen {
 	template<class Matrix>
 	void write_binary(const char* filename, const Matrix& matrix) {
-		std::ofstream out(filename, ios::out | ios::binary | ios::trunc);
+		std::ofstream out(filename, std::ios::out | std::ios::binary | std::ios::trunc);
 		typename Matrix::Index rows = matrix.rows(), cols = matrix.cols();
 		out.write((char*)(&rows), sizeof(typename Matrix::Index));
 		out.write((char*)(&cols), sizeof(typename Matrix::Index));
@@ -19,7 +18,16 @@ namespace Eigen {
 		in.read((char*)(&rows), sizeof(typename Matrix::Index));
 		in.read((char*)(&cols), sizeof(typename Matrix::Index));
 		matrix.resize(rows, cols);
-		in.read((char *)matrix.data(), rows*cols * sizeof(typename Matrix::Scalar));
+		in.read((char*)(matrix.data()), rows*cols * sizeof(typename Matrix::Scalar));
+		in.close();
+	}
+	template<class Matrix>
+	void peek_shape_binary(const char* filename, Matrix& matrix) {
+		std::ifstream in(filename, std::ios::in | std::ios::binary);
+		typename Matrix::Index rows = 0, cols = 0;
+		in.read((char*)(&rows), sizeof(typename Matrix::Index));
+		in.read((char*)(&cols), sizeof(typename Matrix::Index));
+		matrix.resize(rows, cols);
 		in.close();
 	}
 	template<class Matrix>
@@ -37,10 +45,10 @@ namespace Eigen {
 		}
 		file.close();
 	}
-	Eigen::MatrixXf BuildMatFromFile(std::string fName);
-
+	MatrixXf BuildMatFromFile(std::string fName);
+	MatrixXf PeekMatrixShapeFromFile(std::string fName);
 	const static IOFormat CSVFormat(StreamPrecision, DontAlignCols, ", ", "\n");
-	void writeToCSVfile(std::string name, Eigen::MatrixXf matrix);
+	void writeToCSVfile(const std::string& name, const MatrixXf& matrix);
 
-	void removeColumn(Eigen::MatrixXf& matrix, unsigned int colToRemove);
+	void removeColumn(MatrixXf& matrix, unsigned int colToRemove);
 }

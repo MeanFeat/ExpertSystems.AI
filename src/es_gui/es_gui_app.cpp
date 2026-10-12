@@ -5,8 +5,8 @@
 #include "es_profile.h"
 #include <algorithm>
 #include <d3d11.h>
-#include <commdlg.h>
-#pragma comment(lib, "comdlg32.lib")
+/*#include <commdlg.h>
+#pragma comment(lib, "comdlg32.lib")*/
 #include <string>
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
@@ -21,9 +21,10 @@ static ID3D11RenderTargetView *g_rtv;
 
 static void CreateRTV() {
 	ID3D11Texture2D *bb = nullptr;
-	g_swap->GetBuffer(0, IID_PPV_ARGS(&bb));
-	g_dev->CreateRenderTargetView(bb, nullptr, &g_rtv);
+	const HRESULT SwapResult = g_swap->GetBuffer(0, IID_PPV_ARGS(&bb));
+	const HRESULT DeviceResult = g_dev->CreateRenderTargetView(bb, nullptr, &g_rtv);
 	bb->Release();
+	assert(SwapResult == S_OK && DeviceResult == S_OK);
 }
 static void ReleaseRTV() { if (g_rtv) { g_rtv->Release(); g_rtv = nullptr; } }
 
@@ -33,16 +34,21 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 	case WM_SIZE:
 		if (g_dev && w != SIZE_MINIMIZED) {
 			ReleaseRTV();
-			g_swap->ResizeBuffers(0, LOWORD(l), HIWORD(l), DXGI_FORMAT_UNKNOWN, 0);
+			const HRESULT SwapResult = g_swap->ResizeBuffers(0, LOWORD(l), HIWORD(l), DXGI_FORMAT_UNKNOWN, 0);
 			CreateRTV();
+			assert(SwapResult == S_OK);
 		}
 		return 0;
 	case WM_DESTROY: PostQuitMessage(0); return 0;
+	default: break;
 	}
 	return DefWindowProc(h, m, w, l);
 }
 
-struct Buf { char s[260]; Buf(const char *d = "") { strncpy_s(s, d, _TRUNCATE); } };
+namespace
+{
+	struct Buf { char s[260]; Buf(const char *d = "") { strncpy_s(s, d, _TRUNCATE); } };
+}
 
 static std::string DirOf(const std::string &p) {
 	const size_t i = p.find_last_of("\\/");
@@ -73,19 +79,30 @@ static bool MakeRelativeToProfile(const Buf &profilePath, const std::string &pic
 	return true;
 }
 
-static Eigen::MatrixXf LoadMatrix(const char *path) {
+static MatrixXf LoadMatrix(const char *path) {
 	const std::string filePath(path);
-	Eigen::MatrixXf matrix;
+	MatrixXf matrix;
 	if (filePath.size() >= 4 && _stricmp(filePath.c_str() + filePath.size() - 4, ".dat") == 0) {
-		Eigen::read_binary(path, matrix);
+		read_binary(path, matrix);
 	} else {
-		matrix = Eigen::BuildMatFromFile(filePath);
+		matrix = BuildMatFromFile(filePath);
+	}
+	return matrix;
+}
+
+static MatrixXf PeekMatrixShape(const char *path) {
+	const std::string filePath(path);
+	MatrixXf matrix;
+	if (filePath.size() >= 4 && _stricmp(filePath.c_str() + filePath.size() - 4, ".dat") == 0) {
+		peek_shape_binary(path, matrix);
+	} else {
+		matrix = PeekMatrixShapeFromFile(filePath);
 	}
 	return matrix;
 }
 
 // Opens the standard Windows Open/Save explorer dialog. Returns true if a path was chosen.
-static bool BrowseFile(HWND owner, Buf &path, bool save, const char *filter) {
+static bool BrowseFile(const HWND owner, Buf &path, const bool save, const char *filter) {
 	char file[260];
 	strncpy_s(file, path.s, _TRUNCATE);
 	OPENFILENAMEA ofn = {};
@@ -105,7 +122,7 @@ static const char *kNetFilter = "Networks (*.json)\0*.json\0All files\0*.*\0\0";
 static const char *kDataFilter = "Data files (*.csv;*.dat)\0*.csv;*.dat\0CSV (*.csv)\0*.csv\0Binary (*.dat)\0*.dat\0All files\0*.*\0\0";
 
 // Browses for a file that must live in the profile folder (or a sub folder); stores the relative path.
-static bool BrowseRelative(HWND owner, const Buf &profilePath, Buf &rel, bool save, const char *filter, std::string &status) {
+static bool BrowseRelative(const HWND owner, const Buf &profilePath, Buf &rel, const bool save, const char *filter, std::string &status) {
 	Buf picked(ResolveInProfile(profilePath, rel.s).c_str());
 	if (!BrowseFile(owner, picked, save, filter)) return false;
 	if (!MakeRelativeToProfile(profilePath, picked.s, rel)) {
@@ -153,7 +170,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 	EsProfile profile;
 	Buf profilePath("src\\es_gui\\gesture_train.esprofile"), netPath("net.json");
 	Buf trainX, trainY, testX, testY;
-	int inSize = 2, outSize = 1;
+	int inSize = 50, outSize = 1;
 	std::vector<int> hiddenSizes{ 8, 8 };
 	std::vector<Activation> hiddenActivations{ Tanh, Tanh };
 	Activation outputActivation = Linear;
@@ -201,7 +218,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 		testY = abs(profile.testLabels);
 		if (!profile.network.empty() && LoadNetwork()) {
 			status = "Profile and network loaded";
-			return true;
+			return SyncArchitecture();
 		}
 		if (profile.network.empty()) status = "Profile loaded; no network specified";
 		return profile.network.empty();
@@ -246,8 +263,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 			ImGui::Text("Inputs: %d", inSize);
 			static const char *activationNames[] = { "Linear", "Sigmoid", "Tanh", "ReLU", "Leaky ReLU", "Sine" };
 			for (size_t i = 0; i < hiddenSizes.size(); ++i) {
-				ImGui::PushID((int)i);
-				ImGui::Text("Hidden layer %d", (int)i + 1);
+				ImGui::PushID(static_cast<int>(i));
+				ImGui::Text("Hidden layer %d", static_cast<int>(i) + 1);
 				ImGui::SameLine();
 				ImGui::SetNextItemWidth(100.f);
 				ImGui::InputInt("Width", &hiddenSizes[i]);
@@ -278,6 +295,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 			}
 			if (ImGui::Button("Create network")) {
 				const bool validWidths = std::all_of(hiddenSizes.begin(), hiddenSizes.end(), [](int width) { return width > 0; });
+				MatrixXf X = PeekMatrixShape(ResolveInProfile(profilePath, trainX.s).c_str()), Y = PeekMatrixShape(ResolveInProfile(profilePath, trainY.s).c_str());
+				inSize = X.rows();
+				outSize = Y.rows();
 				if (inSize > 0 && outSize > 0 && !hiddenSizes.empty() && validWidths) {
 					std::vector<Activation> activations = hiddenActivations;
 					activations.push_back(outputActivation);
@@ -323,13 +343,13 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 			ImGui::EndDisabled();
 			if (!running) {
 				if (ImGui::Button("Start")) {
-					Eigen::MatrixXf X = LoadMatrix(ResolveInProfile(profilePath, trainX.s).c_str()), Y = LoadMatrix(ResolveInProfile(profilePath, trainY.s).c_str());
-					Eigen::MatrixXf tX, tY;
+					MatrixXf X = LoadMatrix(ResolveInProfile(profilePath, trainX.s).c_str()), Y = LoadMatrix(ResolveInProfile(profilePath, trainY.s).c_str());
+					MatrixXf tX, tY;
 					/*if (testX.s[0] && testY.s[0]) { tX = LoadMatrix(testX.s); tY = LoadMatrix(testY.s); }*/
 					NetBatchParams batch;
 					batch.batchCount = profile.batchCount;
 					batch.shuffleType = profile.shuffle;
-					const int samples = (int)X.cols();
+					const int samples = static_cast<int>(X.cols());
 					const bool started = trainer.Start(&net, X, Y, tX, tY, profile.weightScale, profile.learningRate,
 						profile.regTerm, backend, batch);
 					if (started) {
@@ -349,22 +369,23 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 				status = "Stop requested; finishing current epoch";
 			}
 			const std::vector<float> tr = trainer.TrainHistory(), te = trainer.TestHistory();
-			if (!tr.empty()) ImGui::PlotLines("Train cost", tr.data(), (int)tr.size(), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 300));
-			if (!te.empty()) ImGui::PlotLines("Test cost", te.data(), (int)te.size(), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 300));
+			if (!tr.empty()) ImGui::PlotLines("Train cost", tr.data(), static_cast<int>(tr.size()), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 300));
+			if (!te.empty()) ImGui::PlotLines("Test cost", te.data(), static_cast<int>(te.size()), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 300));
 			if (!tr.empty()) {
 				ImGui::Text("Epochs: %d  average: %.2f epochs/sec  train: %.5f  test: %.5f",
-					(int)tr.size(), trainer.EpochsPerSecond(), tr.back(), te.empty() ? 0.f : te.back());
+					static_cast<int>(tr.size()), trainer.EpochsPerSecond(), tr.back(), te.empty() ? 0.f : te.back());
 			}
 		}
 		ImGui::TextUnformatted(status.c_str());
 		ImGui::End();
 
 		ImGui::Render();
-		const float clear[4] = { 0.1f, 0.1f, 0.12f, 1.f };
+		constexpr float clear[4] = { 0.1f, 0.1f, 0.12f, 1.f };
 		g_ctx->OMSetRenderTargets(1, &g_rtv, nullptr);
 		g_ctx->ClearRenderTargetView(g_rtv, clear);
 		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-		g_swap->Present(1, 0);
+		const HRESULT SwapResult = g_swap->Present(1, 0);
+		assert(SwapResult == S_OK);
 	}
 
 	trainer.Stop();
