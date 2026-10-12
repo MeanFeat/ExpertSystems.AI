@@ -296,8 +296,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 			if (ImGui::Button("Create network")) {
 				const bool validWidths = std::all_of(hiddenSizes.begin(), hiddenSizes.end(), [](int width) { return width > 0; });
 				MatrixXf X = PeekMatrixShape(ResolveInProfile(profilePath, trainX.s).c_str()), Y = PeekMatrixShape(ResolveInProfile(profilePath, trainY.s).c_str());
-				inSize = X.rows();
-				outSize = Y.rows();
+				inSize = static_cast<int>(X.rows());
+				outSize = static_cast<int>(Y.rows());
 				if (inSize > 0 && outSize > 0 && !hiddenSizes.empty() && validWidths) {
 					std::vector<Activation> activations = hiddenActivations;
 					activations.push_back(outputActivation);
@@ -345,7 +345,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 				if (ImGui::Button("Start")) {
 					MatrixXf X = LoadMatrix(ResolveInProfile(profilePath, trainX.s).c_str()), Y = LoadMatrix(ResolveInProfile(profilePath, trainY.s).c_str());
 					MatrixXf tX, tY;
-					/*if (testX.s[0] && testY.s[0]) { tX = LoadMatrix(testX.s); tY = LoadMatrix(testY.s); }*/
+					if (testX.s[0] && testY.s[0]) { tX = LoadMatrix(ResolveInProfile(profilePath,testX.s).c_str()); tY = LoadMatrix(ResolveInProfile(profilePath,testY.s).c_str()); }
 					NetBatchParams batch;
 					batch.batchCount = profile.batchCount;
 					batch.shuffleType = profile.shuffle;
@@ -369,8 +369,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 				status = "Stop requested; finishing current epoch";
 			}
 			const std::vector<float> tr = trainer.TrainHistory(), te = trainer.TestHistory();
-			if (!tr.empty()) ImGui::PlotLines("Train cost", tr.data(), static_cast<int>(tr.size()), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 300));
-			if (!te.empty()) ImGui::PlotLines("Test cost", te.data(), static_cast<int>(te.size()), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 300));
+			if (!tr.empty()) ImGui::PlotLines("Train cost", tr.data(), static_cast<int>(tr.size()), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 200));
+			if (!te.empty()) ImGui::PlotLines("Test cost", te.data(), static_cast<int>(te.size()), 0, nullptr, 0.f, FLT_MAX, ImVec2(0, 200));
 			if (!tr.empty()) {
 				ImGui::Text("Epochs: %d  average: %.2f epochs/sec  train: %.5f  test: %.5f",
 					static_cast<int>(tr.size()), trainer.EpochsPerSecond(), tr.back(), te.empty() ? 0.f : te.back());
