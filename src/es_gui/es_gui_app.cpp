@@ -168,7 +168,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
 	Net net;
 	AsyncTrainer trainer;
 	EsProfile profile;
-	Buf profilePath("src\\es_gui\\gesture_train.esprofile"), netPath("net.json");
+	Buf profilePath(""), netPath("");
 	Buf trainX, trainY, testX, testY;
 	int inSize = 50, outSize = 1;
 	std::vector<int> hiddenSizes{ 8, 8 };
