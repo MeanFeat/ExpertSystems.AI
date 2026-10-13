@@ -1,6 +1,7 @@
 ﻿#include "es_core_pch.h"
 #include "stdNet.h"
 #include "es_parser.h"
+#include <stdexcept>
 
 using namespace Eigen;
 using namespace std;
@@ -20,7 +21,15 @@ Net::Net(const int inputSize, const std::vector<int> &hiddenSizes, const int out
 }
 
 Net::Net(const string &fName) {
-	LoadNetworkJson(fName);
+	const bool IsJson = fName.find(".json") != string::npos;
+	if (IsJson)
+	{
+		LoadNetworkJson(fName);
+	}
+	else
+	{
+		LoadNetwork(fName);
+	}
 }
 
 Net::~Net() {}
@@ -151,7 +160,8 @@ static inline void OutputMatrix(std::ofstream &file, int tb, const std::string& 
 	}
 }
 
-void Net::SaveNetworkJson(const string& fName) {
+void Net::SaveNetworkJson(const string& fName) const
+{
 	if (fName.empty())
 		return;
 	ofstream file(fName);
@@ -169,29 +179,51 @@ void Net::SaveNetworkJson(const string& fName) {
 	file.close();
 }
 
-void Net::SaveNetwork(const string& fName) {
+void Net::SaveNetwork(const string& fName) const
+{
 	if (fName.empty())
-		return;
+		throw invalid_argument("Network file name is empty");
 	ofstream file(fName, ios::binary);
-	int depth = GetDepth();
+	if (!file) {
+		throw runtime_error("Unable to open network file for writing: " + fName);
+	}
+	const int depth = GetDepth();
+	if (depth <= 0 || params.W.size() != static_cast<size_t>(depth) ||
+		params.b.size() != static_cast<size_t>(depth) ||
+		params.layerActivations.size() != static_cast<size_t>(depth) ||
+		params.layerSizes.size() != static_cast<size_t>(depth + 1)) {
+		throw runtime_error("Network parameters are inconsistent and cannot be saved");
+	}
 	file.write((char*)&depth, sizeof(int));
 	for (int lyrIdx = 0; lyrIdx < depth; lyrIdx++) {
-		int rows = static_cast<int>(params.W[lyrIdx].rows());
-		int cols = static_cast<int>(params.W[lyrIdx].cols());
+		const MatrixXf& weight = params.W[lyrIdx];
+		const MatrixXf& bias = params.b[lyrIdx];
+		if (weight.rows() <= 0 || weight.cols() <= 0 ||
+			bias.rows() != weight.rows() || bias.cols() != 1 ||
+			params.layerSizes[lyrIdx] != weight.cols() ||
+			params.layerSizes[lyrIdx + 1] != weight.rows() ||
+			(lyrIdx > 0 && weight.cols() != params.W[lyrIdx - 1].rows())) {
+			throw runtime_error("Network layer dimensions are inconsistent and cannot be saved");
+		}
+		int rows = static_cast<int>(weight.rows());
+		int cols = static_cast<int>(weight.cols());
 		file.write((char*)&rows, sizeof(int));
 		file.write((char*)&cols, sizeof(int));
-		file.write((char*)params.W[lyrIdx].data(), rows * cols * sizeof(float));
+		file.write((char*)weight.data(), static_cast<streamsize>(weight.size()) * sizeof(float));
 
-		rows = static_cast<int>(params.b[lyrIdx].rows());
-		cols = static_cast<int>(params.b[lyrIdx].cols());
+		rows = static_cast<int>(bias.rows());
+		cols = static_cast<int>(bias.cols());
 		file.write((char*)&rows, sizeof(int));
 		file.write((char*)&cols, sizeof(int));
-		file.write((char*)params.b[lyrIdx].data(), rows * cols * sizeof(float));
+		file.write((char*)bias.data(), static_cast<streamsize>(bias.size()) * sizeof(float));
 
 		int act = static_cast<int>(params.layerActivations[lyrIdx]);
 		file.write((char*)&act, sizeof(int));
 	}
 	file.close();
+	if (!file) {
+		throw runtime_error("Failed while writing network file: " + fName);
+	}
 }
 
 namespace
@@ -312,34 +344,94 @@ void Net::LoadNetworkJson(const string& fName) {
 
 void Net::LoadNetwork(const string& fName) {
 	if (fName.empty())
-		return;
+		throw invalid_argument("Network file name is empty");
 	ifstream file(fName, ios::binary);
+	if (!file) {
+		throw runtime_error("Unable to open network file for reading: " + fName);
+	}
+	file.seekg(0, ios::end);
+	const streamoff fileSize = file.tellg();
+	file.seekg(0, ios::beg);
+	if (!file || fileSize < static_cast<streamoff>(sizeof(int))) {
+		throw runtime_error("Invalid binary network file: " + fName);
+	}
 	int depth = 0;
 	file.read((char*)&depth, sizeof(int));
+	constexpr streamoff minimumLayerSize = 5 * static_cast<streamoff>(sizeof(int)) + 2 * static_cast<streamoff>(sizeof(float));
+	if (!file || depth <= 0 ||
+		static_cast<streamoff>(depth) > (fileSize - static_cast<streamoff>(sizeof(int))) / minimumLayerSize) {
+		throw runtime_error("Invalid binary network file: " + fName);
+	}
+
+	vector<MatrixXf> weights;
+	vector<MatrixXf> biases;
+	vector<Activation> activations;
+	vector<int> layerSizes;
+	weights.reserve(depth);
+	biases.reserve(depth);
+	activations.reserve(depth);
+	layerSizes.reserve(depth + 1);
+
 	for (int lyrIdx = 0; lyrIdx < depth; lyrIdx++) {
 		int rows = 0, cols = 0;
 		file.read((char*)&rows, sizeof(int));
 		file.read((char*)&cols, sizeof(int));
+		if (!file || rows <= 0 || cols <= 0) {
+			throw runtime_error("Invalid weight dimensions in binary network file: " + fName);
+		}
+		const streamoff weightDataPosition = file.tellg();
+		const uint64_t weightElementCount = static_cast<uint64_t>(rows) * static_cast<uint64_t>(cols);
+		if (weightDataPosition < 0 || weightDataPosition > fileSize || weightElementCount >
+			static_cast<uint64_t>((fileSize - weightDataPosition) / static_cast<streamoff>(sizeof(float)))) {
+			throw runtime_error("Invalid weight data in binary network file: " + fName);
+		}
 		MatrixXf w(rows, cols);
-		file.read((char*)w.data(), rows * cols * sizeof(float));
-		params.W.push_back(w);
+		file.read((char*)w.data(), static_cast<streamsize>(weightElementCount) * sizeof(float));
+		if (!file) {
+			throw runtime_error("Truncated weights in binary network file: " + fName);
+		}
 
 		file.read((char*)&rows, sizeof(int));
 		file.read((char*)&cols, sizeof(int));
+		if (!file || rows != w.rows() || cols != 1) {
+			throw runtime_error("Invalid bias dimensions in binary network file: " + fName);
+		}
+		const streamoff biasDataPosition = file.tellg();
+		if (biasDataPosition < 0 || biasDataPosition > fileSize || static_cast<uint64_t>(rows) >
+			static_cast<uint64_t>((fileSize - biasDataPosition) / static_cast<streamoff>(sizeof(float)))) {
+			throw runtime_error("Invalid bias data in binary network file: " + fName);
+		}
 		MatrixXf b(rows, cols);
-		file.read((char*)b.data(), rows * cols * sizeof(float));
-		params.b.push_back(b);
+		file.read((char*)b.data(), static_cast<streamsize>(rows) * cols * sizeof(float));
+		if (!file) {
+			throw runtime_error("Truncated biases in binary network file: " + fName);
+		}
 
 		int act = 0;
 		file.read((char*)&act, sizeof(int));
-		params.layerActivations.push_back(static_cast<Activation>(act));
+		if (!file || act < Linear || act > Sine) {
+			throw runtime_error("Invalid activation in binary network file: " + fName);
+		}
 
 		if (lyrIdx == 0) {
-			params.layerSizes.push_back(static_cast<int>(w.rows()));
+			layerSizes.push_back(static_cast<int>(w.cols()));
 		}
-		params.layerSizes.push_back(static_cast<int>(w.cols()));
+		else if (w.cols() != weights.back().rows()) {
+			throw runtime_error("Inconsistent layer dimensions in binary network file: " + fName);
+		}
+		layerSizes.push_back(static_cast<int>(w.rows()));
+		weights.push_back(w);
+		biases.push_back(b);
+		activations.push_back(static_cast<Activation>(act));
 	}
-	file.close();
+	if (file.peek() != char_traits<char>::eof()) {
+		throw runtime_error("Unexpected trailing data in binary network file: " + fName);
+	}
+
+	params.layerSizes.swap(layerSizes);
+	params.W.swap(weights);
+	params.b.swap(biases);
+	params.layerActivations.swap(activations);
 }
 
 int Net::GetInputSize() const
@@ -359,7 +451,8 @@ int Net::GetNodeCount() {
 	return count;
 }
 
-string Net::ToString() {
+string Net::ToString() const
+{
 	string str;
 	const NetParameters *p = &params;
 	for (int i = 0; i < GetDepth(); i++) {

@@ -51,9 +51,9 @@ public:
 	void RandomInit(float scale);
 	float GetSumOfWeights();
 	int GetNeuronCount();
-	std::string ToString();
-	void SaveNetworkJson(const std::string& fName);
-	void SaveNetwork(const std::string& fName);
+	std::string ToString() const;
+	void SaveNetworkJson(const std::string& fName) const;
+	void SaveNetwork(const std::string& fName) const;
 	void LoadNetworkJson(const std::string& fName);
 	void LoadNetwork(const std::string& fName);
 	int GetInputSize() const;
